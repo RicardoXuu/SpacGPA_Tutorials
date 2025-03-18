@@ -1,0 +1,40 @@
+# Ignore virtual environment directories
+venv/
+**/venv/
+env/
+
+# Ignore git update script
+auto_push.sh 
+auto_push.log 
+
+# Ignore Python cache files
+__pycache__/
+**/__pycache__/
+*.pyc
+
+# Ignore VS Code settings
+.vscode/
+
+# Ignore test data and figures (but not ignore folder)
+data/*
+figures/*
+plot/*
+
+# Ignore Jupyter notebook 
+tutorial/demo/*
+tutorial/*html
+tutorial/*ipynb
+
+# Ignore Annotation files
+ST_GGM_dev_1/Ref_for_Enrichment/*
+
+# Exclude specific files from being ignored
+!data/file_list.txt
+!figures/file_list.txt
+!ST_GGM_dev_1/Ref_for_Enrichment/GO*
+!ST_GGM_dev_1/Ref_for_Enrichment/MP*
+!ST_GGM_dev_1/Ref_for_Enrichment/mouse*
+
+# Ignore OS-specific files
+.DS_Store
+Thumbs.db
