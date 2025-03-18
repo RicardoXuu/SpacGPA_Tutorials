@@ -4,8 +4,8 @@ venv/
 env/
 
 # Ignore git update script
-auto_push.sh 
-auto_push.log 
+auto_push_SpacGPA_dev_1.sh
+auto_push_SpacGPA_dev_1.log
 
 # Ignore Python cache files
 __pycache__/
@@ -18,7 +18,6 @@ __pycache__/
 # Ignore test data and figures (but not ignore folder)
 data/*
 figures/*
-plot/*
 
 # Ignore Jupyter notebook 
 tutorial/demo/*
@@ -31,9 +30,9 @@ ST_GGM_dev_1/Ref_for_Enrichment/*
 # Exclude specific files from being ignored
 !data/file_list.txt
 !figures/file_list.txt
-!ST_GGM_dev_1/Ref_for_Enrichment/GO*
-!ST_GGM_dev_1/Ref_for_Enrichment/MP*
-!ST_GGM_dev_1/Ref_for_Enrichment/mouse*
+!SpacGPA/Ref_for_Enrichment/GO*
+!SpacGPA/Ref_for_Enrichment/MP*
+!SpacGPA/Ref_for_Enrichment/mouse*
 
 # Ignore OS-specific files
 .DS_Store
