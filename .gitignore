@@ -25,7 +25,7 @@ tutorial/*html
 tutorial/*ipynb
 
 # Ignore Annotation files
-ST_GGM_dev_1/Ref_for_Enrichment/*
+SpacGPA/Ref_for_Enrichment/*
 
 # Exclude specific files from being ignored
 !data/file_list.txt

@@ -6,8 +6,8 @@ from anndata import AnnData
 import time
 import gc
 
-from .calculate_gpu import calculate_pcors_pytorch
-from .calculate_gpu import estimate_rounds
+from .calculate_pcors import calculate_pcors_pytorch
+from .calculate_pcors import estimate_rounds
 from .find_modules import run_mcl, run_louvain, run_mcl_original
 
 class FDRResults_Pytorch:
