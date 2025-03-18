@@ -90,7 +90,7 @@ print(ggm_gpu_32.mp_enrichment)
 # %%
 # 重新读取数据
 del adata
-adata = sc.read_h5ad("data/MOSTA/E16.5_E1S1.MOSTA.h5ad")
+adata = sc.read_h5ad("/dta/ypxu/ST_GGM/VS_Code/ST_GGM_dev_1/data/MOSTA/E16.5_E1S1.MOSTA.h5ad")
 adata.var_names_make_unique()
 print(adata.X.shape)
 
