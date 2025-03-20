@@ -5,6 +5,7 @@ from .enrich_analysis import go_enrichment_analysis, mp_enrichment_analysis, get
 from .anno_cells import calculate_module_expression, calculate_gmm_annotations, smooth_annotations, integrate_annotations, calculate_module_overlap
 from .anno_cells import integrate_annotations_old
 from .preprocessing import remove_duplicate_genes
+from .save_ggm import save_ggm, load_ggm
 
 __all__ = [
     'create_ggm', 'FDRResults',
@@ -14,4 +15,5 @@ __all__ = [
     'calculate_module_expression', 'calculate_gmm_annotations', 'smooth_annotations', 'integrate_annotations', 'calculate_module_overlap',
     'integrate_annotations_old',
     'remove_duplicate_genes',
+    'save_ggm', 'load_ggm'
 ]

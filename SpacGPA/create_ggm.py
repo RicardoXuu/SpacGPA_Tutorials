@@ -3,6 +3,8 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 from anndata import AnnData
+import h5py
+from io import StringIO
 import time
 import gc
 
@@ -32,7 +34,8 @@ class FDRResults:
         self.permutation_pcor_sampling_num = None
         self.permutation_rho_all = None
         self.permutation_SigEdges = None
-        self.fdr = None
+        self.FDR_threshold = None
+        self.summary = None
 
 
 class create_ggm:   
@@ -78,6 +81,8 @@ class create_ggm:
 
         self.matrix = None
         self.round_num = round_num
+        self.selected_num = selected_num
+        self.target_sampling_count = target_sampling_count
         self.gene_num = None
         self.gene_name = gene_name
         self.samples_num = None
@@ -86,7 +91,6 @@ class create_ggm:
 
         self.cut_off_pcor = cut_off_pcor
         self.cut_off_coex_cell = cut_off_coex_cell
-        self.selected_num = selected_num
         self.seed_used = seed
         self.run_mode = run_mode 
         self.double_precision = double_precision 
@@ -102,7 +106,15 @@ class create_ggm:
         self.pcor_sampling_num = None
         self.rho_all = None
         self.SigEdges = None
+        self.fdr = None
+        self.modules = None
+        self.modules_summary = None
+        self.go_enrichment = None
+        self.mp_enrichment = None
 
+
+
+        # Validate and extract input
         x, gene_name, sample_name = self._validate_and_extract_input(x, gene_name, sample_name)
         self.matrix = sp.csr_matrix(x) 
         self.gene_name = gene_name
@@ -159,8 +171,8 @@ class create_ggm:
         
         if FDR_control:
             self.fdr_control()
-            fdr_df = self.fdr.fdr
-            fdr_filtered = fdr_df.loc[fdr_df['FDR'] <= self.FDR_threshold]
+            fdr_summary = self.fdr.summary
+            fdr_filtered = fdr_summary.loc[fdr_summary['FDR'] <= self.FDR_threshold]
             if fdr_filtered.shape[0] > 0:
                 min_pcor_row = fdr_filtered.iloc[0]
                 min_pcor = min_pcor_row['Pcor']
@@ -208,6 +220,34 @@ class create_ggm:
     def _initialize_variables(self, x):
         self.samples_num = x.shape[0]
         self.gene_num = x.shape[1]
+    
+    def __repr__(self):
+        # Create a string representation of the object
+        s = f"View of ggm object: {self.project_name}\n"
+        s += "MetaInfo:\n"
+        s += f"  Gene Number: {self.gene_num}\n"
+        s += f"  Sample Number: {self.samples_num}\n"
+        s += f"  Pcor Thereshold: {self.cut_off_pcor}\n"
+        s += f"  Coexpressed Cells Number Thereshold: {self.cut_off_coex_cell}\n"
+        s += "\nResults:\n"
+        if self.SigEdges is not None:
+            s += f"  SigEdges: DataFrame with {self.SigEdges.shape[0]} significant gene pairs\n"
+        else:
+            s += "  SigEdges: None\n"
+        if self.modules is not None:
+            unique_mods = self.modules['module_id'].unique() if 'module_id' in self.modules.columns else None
+            s += f"  modules: {len(unique_mods)} modules with {self.modules.shape[0]} genes\n"
+        else:
+            s += "  modules: None\n"
+        if self.modules_summary is not None:
+            s += f"  modules_summary: DataFrame with {self.modules_summary.shape[0]} rows\n"
+        else:
+            s += "  modules_summary: None\n"
+        if self.fdr is not None:
+            s += "  FDR: Exists\n"
+        else:
+            s += "  FDR: None\n"
+        return s
 
     def fdr_control(self, permutation_fraction=1.0, FDR_threshold=0.01):
         """
@@ -229,6 +269,7 @@ class create_ggm:
         print("Randomly redistribute the expression distribution of input genes...")
         fdr = FDRResults()
         fdr.permutation_fraction = permutation_fraction
+        fdr.FDR_threshold = FDR_threshold
         new_gene_name = self.gene_name.copy()
 
         # Randomly select columns to permute
@@ -389,20 +430,20 @@ class create_ggm:
             fdr_stat[i - 10, 4] = pct1
 
         # Convert to DataFrame for easier inspection
-        fdr_df = pd.DataFrame(fdr_stat.cpu().numpy(), columns=['Pcor', 'SigEdgeNum', 'FDR', 'SigPermutatedEdgeNum', 'SigPermutatedEdgeProportion'])
-        fdr_df['SigEdgeNum'] = fdr_df['SigEdgeNum'].astype(int)
-        fdr_df['SigPermutatedEdgeNum'] = fdr_df['SigPermutatedEdgeNum'].astype(int)
-        fdr.fdr = fdr_df
+        fdr_summary = pd.DataFrame(fdr_stat.cpu().numpy(), columns=['Pcor', 'SigEdgeNum', 'FDR', 'SigPermutatedEdgeNum', 'SigPermutatedEdgeProportion'])
+        fdr_summary['SigEdgeNum'] = fdr_summary['SigEdgeNum'].astype(int)
+        fdr_summary['SigPermutatedEdgeNum'] = fdr_summary['SigPermutatedEdgeNum'].astype(int)
+        fdr.summary = fdr_summary
         self.fdr = fdr
         print("FDR control completed.")
-        print(f"Current Pcor: {self.cut_off_pcor:.3f}")
-        fdr_filtered = fdr_df.loc[fdr_df['FDR'] <= self.FDR_threshold]
+        print(f"Current Pcor threshold: {self.cut_off_pcor:.3f}")
+        fdr_filtered = fdr_summary.loc[fdr_summary['FDR'] <= self.FDR_threshold]
         if fdr_filtered.shape[0] == 0:
-            print(f"No Pcors found with FDR <= {self.FDR_threshold}.")
+            print(f"No Pcors threshold found with FDR <= {self.FDR_threshold}.")
         else:
             min_pcor_row = fdr_filtered.iloc[0]
             min_pcor = min_pcor_row['Pcor']
-            print(f"Minimum Pcor with FDR <= {FDR_threshold}: {min_pcor:.3f}")
+            print(f"Minimum Pcor threshold with FDR <= {FDR_threshold}: {min_pcor:.3f}")
 
 
     def adjust_cutoff(self, pcor_threshold=0.03, coex_cell_threshold=10):
@@ -414,7 +455,7 @@ class create_ggm:
         Returns:
 
         """   
-        print("Adjusting cutoff of Pcor and coexpressed cell number...")
+        print("Adjusting Threshold of Pcor and coexpressed cell number...")
         cut_off_pcor = pcor_threshold
         cut_off_coex_cell = coex_cell_threshold        
         cellnum = np.diagonal(self.coexpressed_cell_num)
@@ -530,6 +571,27 @@ class create_ggm:
                 all_genes=('gene', ', '.join)
             ).reset_index()
     
+    def get_module_edges(self, module_id):
+        """
+        Extract edges within a module.
+        Parameters:
+            - module_id: The ID of the module to extract.
+        Returns:
+            - module_edges: The edges within the module.
+        """
+        module_list = self.modules['module_id'].unique()
+        if module_id not in module_list:
+            raise ValueError("Module ID not found.")
+        if self.modules is None:
+            raise ValueError("Please run find_modules first.")
+        genes_in_module = self.modules.loc[self.modules["module_id"] == module_id, "gene"].unique()
+
+        mask = self.SigEdges["GeneA"].isin(genes_in_module) & self.SigEdges["GeneB"].isin(genes_in_module)
+        module_edges = self.SigEdges[mask].copy()
+        module_edges.index = range(len(module_edges))
+
+        return module_edges
+            
     def go_enrichment_analysis(self,
                species="mouse",
                padjust_method="BH",
@@ -542,5 +604,6 @@ class create_ggm:
                padjust_method="BH",
                pvalue_cutoff=0.05
                 ):
-        run_mp(self, species, padjust_method, pvalue_cutoff)    
-                           
+        run_mp(self, species, padjust_method, pvalue_cutoff)
+    
+    
