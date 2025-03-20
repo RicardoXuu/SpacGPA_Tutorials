@@ -7,10 +7,12 @@ import time
 import gc
 
 from .calculate_pcors import calculate_pcors_pytorch
-from .calculate_pcors import estimate_rounds
+from .calculate_pcors import set_selects, estimate_rounds
 from .find_modules import run_mcl, run_louvain, run_mcl_original
+from .enrich_analysis import go_enrichment_analysis as run_go
+from .enrich_analysis import mp_enrichment_analysis as run_mp
 
-class FDRResults_Pytorch:
+class FDRResults:
 
     def __init__(self):
         """
@@ -33,52 +35,61 @@ class FDRResults_Pytorch:
         self.fdr = None
 
 
-class ST_GGM_Pytorch:   
-    def __init__(self, x, round_num=None, gene_name=None, sample_name=None, dataset_name='na',
-                 cut_off_pcor=0.03, cut_off_coex_cell=10, selected_num=2000, 
-                 use_chunking=True, chunk_size=1000, 
+class create_ggm:   
+    def __init__(self, x, round_num=None, selected_num=None, target_sampling_count=100, 
+                 gene_name=None, sample_name=None, project_name='na',
+                 cut_off_pcor=0.03, cut_off_coex_cell=10,  
+                 use_chunking=True, chunk_size=5000, 
                  seed=98, run_mode=2, double_precision=False, stop_threshold=0,
-                 FDR_control=False, FDR_threshold=0.0001, auto_adjust=False):
+                 FDR_control=False, FDR_threshold=0.01, auto_adjust=False):
         """
         Instruction:        
         Please Normalize The Expression Matrix Before Running; 
 
         Parameters: 
-        x : an expression matrix or AnnData object; spot in row, gene in column.
-        round_num : number of iterations.
-        gene_name : an array of gene names. 
-        sample_name : an array of spot ids.
-        dataset_name : optional, default as 'na'.
-        cut_off_pcor : optional, default as 0.03.
+        x : an expression matrix or AnnData object; spot(or cell) in row, gene in column.
+        round_num : Manually set the total number of iterations. The default as None, estimated by the gene number,
+                     selected number and target sampling count.
+        selected_num : Manually set the number of genes selected in each iteration to calculate the partial correlation 
+                       coefficient. The default is None and it is recommended to be set between 500 and 2000 based on the
+                       number of input genes.
+                       (See the recommended setting in the annotation of the set_selects function)
+        target_sampling_count : The total expected number of times each gene pair is collected in all iterations。
+                                The default is 100. The larger the setting, the greater the total number of iterations.
+        gene_name : an array of gene names. only used when x is a matrix.
+        sample_name : an array of spot(or cell) ids. only used when x is a matrix.
+        project_name : optional, default as 'na'. set a name for the ggm object.
+        cut_off_pcor : optional, default as 0.03. 
         cut_off_coex_cell : optional, default as 10.
-        selected_num : optional, default as 2000.
+        use_chunking : optional, default as True. Whether to enable chunk-based computations.
+        chunk_size : optional, default as 5000. Controls memory usage for large datasets.   
         seed : optional, default as 98.
-        run_mode : optional, default as 1.
+        run_mode : optional, default as 2.
                    0 - All computations on CPU.
                    1 - Preprocessing on CPU, partial correlation calculations on GPU.
                    2 - All computations on GPU.
-        double_precision : optional, default as False.
-        use_chunking : optional, default as True. Whether to enable chunk-based computations.
-        chunk_size : optional, default as 1000. Controls memory usage for large datasets.   
+        double_precision : optional, default as False. Whether to use double precision for calculations.
         stop_threshold: threshold for stopping the loop if the sum of `valid_elements_count` over 100 iterations is less than this value.
-        Returns:
-
+        FDR_control: optional, default as False. Whether to perform FDR control automatically.
+        FDR_threshold: optional, default as 0.01. The FDR threshold for filtering significant edges. only used when FDR_control is True.
+        auto_adjust: optional, default as False. Whether to adjust the cutoff based on FDR results. only used when FDR_control is True.
+        
         """
 
         self.matrix = None
-        self.RoundNumber = round_num
+        self.round_num = round_num
         self.gene_num = None
         self.gene_name = gene_name
         self.samples_num = None
         self.sample_name = sample_name
-        self.data_name = dataset_name
+        self.project_name = project_name
 
         self.cut_off_pcor = cut_off_pcor
         self.cut_off_coex_cell = cut_off_coex_cell
         self.selected_num = selected_num
         self.seed_used = seed
-        self.run_mode = run_mode  # Added run_mode
-        self.double_precision = double_precision  # Added double_precision
+        self.run_mode = run_mode 
+        self.double_precision = double_precision 
         self.use_chunking = use_chunking
         self.chunk_size = chunk_size
         self.stop_threshold = stop_threshold
@@ -99,38 +110,44 @@ class ST_GGM_Pytorch:
         
         self._initialize_variables(x)
 
-        round_num_default = estimate_rounds(self.gene_num, self.selected_num, 100)
+        selected_num_default = set_selects(self.gene_num)
+        if selected_num is None:
+            selected_num = selected_num_default
+            self.selected_num = selected_num_default
+        
+        round_num_default = estimate_rounds(self.gene_num, selected_num, target_sampling_count)
         if round_num is None:
             round_num = round_num_default
-            self.RoundNumber = round_num_default 
-        
+            self.round_num = round_num_default 
+
         if run_mode == 0:
-            print("\nRunning entirely on CPU.")
+            print("\nRunning all calculations on CPU.")
         elif run_mode == 1:
             print("\nRunning preprocessing on CPU and computing on GPU (if available).")
         elif run_mode == 2:
-            print("\nRunning entirely on GPU (if available).")
+            print("\nRunning all calculations on GPU (if available).")
         else:
             raise ValueError("Invalid run_mode. Use 0 for CPU, 1 for hybrid, or 2 for GPU.")
 
         # Determine dtype based on parameters
         if double_precision:
-            print("Using double precision (float64).")
+            print("Using double precision (float64) for all calculations.")
         else:
-            print("Using single precision (float32).")
+            print("Using single precision (float32) for all calculations.")
 
         # Adjust chunk_size if not using chunking
         if  use_chunking:
             print(f"Using chunk size of {chunk_size} for efficient computation")  
 
-        self.RoundNumber, self.coexpressed_cell_num, self.pcor_all, self.pcor_sampling_num, self.rho_all, self.SigEdges = calculate_pcors_pytorch(
+        # Calculate partial correlations
+        self.round_num, self.coexpressed_cell_num, self.pcor_all, self.pcor_sampling_num, self.rho_all, self.SigEdges = calculate_pcors_pytorch(
             x, 
-            round_num, 
-            self.gene_name, 
-            self.data_name, 
+            round_num=round_num, 
+            selected_num=selected_num,
+            gene_name=self.gene_name, 
+            project_name=self.project_name, 
             cut_off_pcor=cut_off_pcor, 
             cut_off_coex_cell=cut_off_coex_cell, 
-            selected_num=selected_num, 
             seed=seed,
             run_mode=run_mode, 
             double_precision=double_precision, 
@@ -138,24 +155,20 @@ class ST_GGM_Pytorch:
             chunk_size=chunk_size,
             stop_threshold=stop_threshold)
         
+        print("Found", self.SigEdges.shape[0], "significant co-expressed gene pairs with partial correlation >=", cut_off_pcor, "and co-expressed cell number >=", cut_off_coex_cell)
+        
         if FDR_control:
-            print("\nPerforming FDR control...")
             self.fdr_control()
-            print(f"Current Pcor: {self.cut_off_pcor:.3f}")
             fdr_df = self.fdr.fdr
             fdr_filtered = fdr_df.loc[fdr_df['FDR'] <= self.FDR_threshold]
-            if fdr_filtered.shape[0] == 0:
-                print(f"No Pcors found with FDR <= {self.FDR_threshold}.") 
-            else: 
+            if fdr_filtered.shape[0] > 0:
                 min_pcor_row = fdr_filtered.iloc[0]
                 min_pcor = min_pcor_row['Pcor']
-                print(f"Minimum Pcor with FDR <= {self.FDR_threshold}: {min_pcor:.3f}")
                 if auto_adjust:
-                    print("Adjusting cutoff based on FDR results...")
                     self.adjust_cutoff(pcor_threshold=round(min_pcor, 3),
                                         coex_cell_threshold=self.cut_off_coex_cell) 
-
-           
+        
+        print("\nTask completed. Resources released.")
         
     def _validate_and_extract_input(self, x, gene_name, sample_name):
         print("Please Normalize The Expression Matrix Before Running!")
@@ -196,40 +209,7 @@ class ST_GGM_Pytorch:
         self.samples_num = x.shape[0]
         self.gene_num = x.shape[1]
 
-    def adjust_cutoff(self, pcor_threshold=0.03, coex_cell_threshold=10):
-        """
-        Instruction:
-
-        Parameters:
-
-        Returns:
-
-        """   
-    
-        cut_off_pcor = pcor_threshold
-        cut_off_coex_cell = coex_cell_threshold        
-        cellnum = np.diagonal(self.coexpressed_cell_num)
-        
-        self.cut_off_pcor = cut_off_pcor
-        self.cut_off_coex_cell = cut_off_coex_cell
-
-        idx = np.where((self.pcor_all >= cut_off_pcor)
-                    & (self.pcor_all < 1)
-                    & (self.coexpressed_cell_num >= cut_off_coex_cell))
-        e1 = list(self.gene_name[idx[0]])
-        e1n = list(cellnum[idx[0]].astype(int))
-        e2 = list(self.gene_name[idx[1]])
-        e2n = list(cellnum[idx[1]].astype(int))
-        e3 = list(self.pcor_all[idx])
-        e4 = list(self.pcor_sampling_num[idx].astype(int))
-        e5 = list(self.rho_all[idx])
-        e6 = list(self.coexpressed_cell_num[idx].astype(int))
-        e7 = [self.data_name] * len(e1)
-        self.SigEdges = pd.DataFrame({'GeneA': e1, 'GeneB': e2, 'Pcor': e3, 'SamplingTime': e4,
-                                        'r': e5, 'Cell_num_A': e1n, 'Cell_num_B': e2n,
-                                        'Cell_num_coexpressed': e6, 'Dataset': e7})
-
-    def fdr_control(self, permutation_fraction=1.0):
+    def fdr_control(self, permutation_fraction=1.0, FDR_threshold=0.01):
         """
         Perform FDR control by permuting gene columns and calculating the necessary statistics.
 
@@ -239,12 +219,15 @@ class ST_GGM_Pytorch:
         Returns:
         - fdr: The FDR results object.
         """
+        self.FDR_threshold = FDR_threshold
         run_mode = self.run_mode
         device = 'cuda' if run_mode != 0 else 'cpu'
-
+        
+        print("\nPerforming FDR control...")
+        
         # Create result storage
         print("Randomly redistribute the expression distribution of input genes...")
-        fdr = FDRResults_Pytorch()
+        fdr = FDRResults()
         fdr.permutation_fraction = permutation_fraction
         new_gene_name = self.gene_name.copy()
 
@@ -301,7 +284,7 @@ class ST_GGM_Pytorch:
 
         # Calculate partial correlations and other statistics
         print("\nCalculate correlation between genes after redistribution...")
-        round_num = self.RoundNumber
+        round_num = self.round_num
         cut_off_pcor = self.cut_off_pcor
         cut_off_coex_cell = self.cut_off_coex_cell
         selected_num = self.selected_num
@@ -311,11 +294,11 @@ class ST_GGM_Pytorch:
         _, fdr.permutation_coexpressed_cell_num, fdr.permutation_pcor_all, fdr.permutation_pcor_sampling_num, fdr.permutation_rho_all, fdr.permutation_SigEdges = calculate_pcors_pytorch(
             permutation_x_csr, 
             round_num=round_num, 
+            selected_num=selected_num, 
             gene_name=new_gene_name, 
-            data_name=self.data_name, 
+            project_name=self.project_name, 
             cut_off_pcor=cut_off_pcor, 
             cut_off_coex_cell=cut_off_coex_cell, 
-            selected_num=selected_num, 
             seed=seed, 
             run_mode=self.run_mode,
             double_precision=self.double_precision,
@@ -411,8 +394,59 @@ class ST_GGM_Pytorch:
         fdr_df['SigPermutatedEdgeNum'] = fdr_df['SigPermutatedEdgeNum'].astype(int)
         fdr.fdr = fdr_df
         self.fdr = fdr
-
         print("FDR control completed.")
+        print(f"Current Pcor: {self.cut_off_pcor:.3f}")
+        fdr_filtered = fdr_df.loc[fdr_df['FDR'] <= self.FDR_threshold]
+        if fdr_filtered.shape[0] == 0:
+            print(f"No Pcors found with FDR <= {self.FDR_threshold}.")
+        else:
+            min_pcor_row = fdr_filtered.iloc[0]
+            min_pcor = min_pcor_row['Pcor']
+            print(f"Minimum Pcor with FDR <= {FDR_threshold}: {min_pcor:.3f}")
+
+
+    def adjust_cutoff(self, pcor_threshold=0.03, coex_cell_threshold=10):
+        """
+        Instruction:
+
+        Parameters:
+
+        Returns:
+
+        """   
+        print("Adjusting cutoff of Pcor and coexpressed cell number...")
+        cut_off_pcor = pcor_threshold
+        cut_off_coex_cell = coex_cell_threshold        
+        cellnum = np.diagonal(self.coexpressed_cell_num)
+        
+        old_pcor = self.cut_off_pcor
+        old_coex_cell = self.cut_off_coex_cell
+        self.cut_off_pcor = cut_off_pcor
+        self.cut_off_coex_cell = cut_off_coex_cell
+
+        if old_pcor == cut_off_pcor and old_coex_cell == cut_off_coex_cell:
+            print("No changes made for cutoff values.")
+        if old_pcor != cut_off_pcor:
+            print(f"Ajusted Pcor Thereshold: {old_pcor} -> {cut_off_pcor}")    
+        if old_coex_cell != cut_off_coex_cell:
+            print(f"Ajusted Coexpressed Cell Number Thereshold: {old_coex_cell} -> {cut_off_coex_cell}")  
+
+        idx = np.where((self.pcor_all >= cut_off_pcor)
+                    & (self.pcor_all < 1)
+                    & (self.coexpressed_cell_num >= cut_off_coex_cell))
+        e1 = list(self.gene_name[idx[0]])
+        e1n = list(cellnum[idx[0]].astype(int))
+        e2 = list(self.gene_name[idx[1]])
+        e2n = list(cellnum[idx[1]].astype(int))
+        e3 = list(self.pcor_all[idx])
+        e4 = list(self.pcor_sampling_num[idx].astype(int))
+        e5 = list(self.rho_all[idx])
+        e6 = list(self.coexpressed_cell_num[idx].astype(int))
+        e7 = [self.project_name] * len(e1)
+        self.SigEdges = pd.DataFrame({'GeneA': e1, 'GeneB': e2, 'Pcor': e3, 'SamplingTime': e4,
+                                        'r': e5, 'Cell_num_A': e1n, 'Cell_num_B': e2n,
+                                        'Cell_num_coexpressed': e6, 'Dataset': e7})
+        print("Found", self.SigEdges.shape[0], "significant co-expressed gene pairs with partial correlation >=", cut_off_pcor, "and co-expressed cell number >=", cut_off_coex_cell)
 
     def find_modules(self, methods='mcl', 
                 expansion=2, inflation=1.7, max_iter=1000, tol=1e-6, pruning_threshold=1e-5,
@@ -495,3 +529,18 @@ class ST_GGM_Pytorch:
                 num_genes_degree_ge_2=('degree', lambda x: (x >= 2).sum()),
                 all_genes=('gene', ', '.join)
             ).reset_index()
+    
+    def go_enrichment_analysis(self,
+               species="mouse",
+               padjust_method="BH",
+               pvalue_cutoff=0.05
+                ):
+        run_go(self, species, padjust_method, pvalue_cutoff)
+    
+    def mp_enrichment_analysis(self,
+               species="mouse",
+               padjust_method="BH",
+               pvalue_cutoff=0.05
+                ):
+        run_mp(self, species, padjust_method, pvalue_cutoff)    
+                           

@@ -12,7 +12,6 @@ import scanpy as sc
 import anndata
 import os
 import gc
-import squidpy as sq
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -23,12 +22,12 @@ from PIL import Image
 # %%
 # 切换工作目录
 os.getcwd()
-workdir = '/dta/ypxu/ST_GGM/VS_Code/ST_GGM_dev_1'
+workdir = '/dta/ypxu/SpacGPA/Dev_Version/SpacGPA_dev_1'
 os.chdir(workdir)
 os.getcwd()
 
 # %%
-from ST_GGM_dev_1 import *
+from SpacGPA import *
 
 # %%
 # Before Read Data, tran 'tissue_positions.parquet' to 'tissue_positions.csv'

@@ -46,59 +46,6 @@ def csr_to_torch_sparse_tensor(csr_mat, device, dtype=torch.float32):
         gc.collect()
 
 
-# def calculate_coex_in_chunks(x, chunk_size, device, dtype=torch.float32):
-#     """
-#     Compute the co-expression matrix (coex) of a large matrix x in chunks.
-
-#     Parameters:
-#         x: scipy.sparse.csr_matrix
-#             Input sparse matrix (cells x genes).
-#         chunk_size: int
-#             Number of rows to process in each chunk.
-#         device: torch.device
-#             Device to use for computation (CPU or GPU).
-#         dtype: torch.dtype
-#             Desired precision for computation.
-
-#     Returns:
-#         coex: torch.Tensor
-#             Co-expression matrix (genes x genes), stored as int32 to save memory.
-#         cellnum: torch.Tensor
-#             Number of cells expressing each gene.
-#     """
-#     nrow, ncol = x.shape
-#     coex = torch.zeros((ncol, ncol), dtype=torch.int32, device=device)  # Store co-expression counts
-#     cellnum = torch.zeros(ncol, dtype=torch.int32, device=device)  # Store the number of cells expressing each gene
-
-#     try:
-#         for start_row in range(0, nrow, chunk_size):
-#             end_row = min(start_row + chunk_size, nrow)
-
-#             # Convert chunk to PyTorch sparse tensor
-#             chunk_csr = x[start_row:end_row]
-#             chunk_sparse = csr_to_torch_sparse_tensor(chunk_csr, device, dtype=dtype)
-
-#             # Convert sparse tensor to dense binary matrix
-#             chunk_dense = (chunk_sparse.to_dense() > 0).int()
-
-#             # Update cell counts for each gene
-#             cellnum += torch.sum(chunk_dense, dim=0).int()
-
-#             # Calculate co-expression contributions
-#             coex += torch.matmul(chunk_dense.T.float(), chunk_dense.float()).int()
-
-#             # Release memory for intermediate tensors
-#             del chunk_csr, chunk_sparse, chunk_dense
-#             gc.collect()
-#             torch.cuda.empty_cache()
-
-#     finally:
-#         # Ensure all tensors are deleted and memory is cleared
-#         gc.collect()
-#         torch.cuda.empty_cache()
-
-#     return coex, cellnum
-
 def calculate_coex_in_chunks(x, chunk_size, device, dtype=torch.float32):
     """
     Compute the co-expression matrix (coex) of a large matrix x in chunks.
@@ -153,81 +100,6 @@ def calculate_coex_in_chunks(x, chunk_size, device, dtype=torch.float32):
         del coex, cellnum
         gc.collect()
         torch.cuda.empty_cache()
-
-
-# def calculate_covariance_in_chunks(x, chunk_size, device, dtype=torch.float32):
-#     """
-#     Compute the covariance matrix of a large matrix `x` in chunks with specified precision.
-
-#     Parameters:
-#         x: scipy.sparse.csr_matrix
-#             Input matrix (cells x genes).
-#         chunk_size: int
-#             Number of rows to process in each chunk.
-#         device: torch.device
-#             Device to use for computation (CPU or GPU).
-#         dtype: torch.dtype
-#             Desired precision for computation (torch.float32 or torch.float64).
-
-#     Returns:
-#         cov_all: torch.Tensor
-#             Covariance matrix (genes x genes).
-#     """
-#     nrow, ncol = x.shape
-#     cov_all = torch.zeros((ncol, ncol), dtype=dtype, device=device)
-#     row_sums = torch.zeros(ncol, dtype=dtype, device=device)
-#     row_counts = 0
-
-#     try:
-#         for start_row in range(0, nrow, chunk_size):
-#             end_row = min(start_row + chunk_size, nrow)
-#             chunk_csr = x[start_row:end_row]
-#             chunk_sparse = csr_to_torch_sparse_tensor(chunk_csr, device, dtype=dtype)
-#             chunk = chunk_sparse.to_dense()
-
-#             # Update cumulative sums and counts
-#             row_sums += torch.sum(chunk, dim=0)
-#             row_counts += chunk.size(0)
-#             # Update covariance contributions
-#             cov_all += torch.matmul(chunk.T, chunk)
-
-#             # Release memory for intermediate tensors
-#             del chunk_csr, chunk_sparse, chunk
-#             gc.collect()
-#             torch.cuda.empty_cache()
-
-#         # Normalize row_sums and calculate means
-#         row_means = row_sums / row_counts
-
-#         # Update cov_all in chunks to save memory
-#         for start_col in range(0, ncol, chunk_size):
-#             end_col = min(start_col + chunk_size, ncol)
-#             cov_all[:, start_col:end_col] /= row_counts
-#             # Use torch.ger to ensure dimensions match
-#             outer_chunk = torch.ger(row_means, row_means[start_col:end_col])
-#             cov_all[:, start_col:end_col] -= outer_chunk
-#             del outer_chunk
-#             gc.collect()
-#             torch.cuda.empty_cache()
-
-#     finally:
-#         # Ensure all tensors are deleted and memory is cleared
-#         if 'row_sums' in locals():
-#             del row_sums
-#         if 'row_counts' in locals():
-#             del row_counts
-#         if 'row_means' in locals():
-#             del row_means
-#         if 'chunk_csr' in locals():
-#             del chunk_csr
-#         if 'chunk_sparse' in locals():
-#             del chunk_sparse
-#         if 'chunk' in locals():
-#             del chunk
-#         gc.collect()
-#         torch.cuda.empty_cache()
-
-#     return cov_all
 
 
 def calculate_covariance_in_chunks(x, chunk_size, device, dtype=torch.float32):
@@ -299,10 +171,7 @@ def calculate_covariance_in_chunks(x, chunk_size, device, dtype=torch.float32):
         torch.cuda.empty_cache()
 
 
-
-
-
-def calculate_pcors_pytorch(x, round_num, gene_name, data_name, cut_off_pcor, cut_off_coex_cell, selected_num, seed, 
+def calculate_pcors_pytorch(x, round_num, selected_num, gene_name, project_name, cut_off_pcor, cut_off_coex_cell,seed, 
                             run_mode=1, double_precision=False, use_chunking=True, chunk_size=1000, stop_threshold=0):
     """
     Optimized version of calculate_pcors using PyTorch for improved performance on GPU or CPU.
@@ -312,16 +181,16 @@ def calculate_pcors_pytorch(x, round_num, gene_name, data_name, cut_off_pcor, cu
             Input expression matrix (cells x genes).
         round_num: int
             Number of iterations to perform.
+        selected_num: int
+            Number of genes to sample in each iteration.
         gene_name: list
             List of gene names corresponding to columns of x.
-        data_name: str
-            Name of the dataset for annotation purposes.
+        project_name: str
+            Name of this ggm project.
         cut_off_pcor: float
             Cut-off for partial correlations.
         cut_off_coex_cell: int
             Minimum number of co-expressed cells.
-        selected_num: int
-            Number of genes to sample in each iteration.
         seed: int
             Random seed for reproducibility.
         run_mode: int
@@ -404,6 +273,7 @@ def calculate_pcors_pytorch(x, round_num, gene_name, data_name, cut_off_pcor, cu
         valid_elements_history = []
 
         print(f"\nCalculating partial correlations in {round_num} iterations.")
+        print(f"Number of genes randomly selected in each iteration: {selected_num}")
         torch.manual_seed(seed)
 
         # Step 3: Iteratively compute partial correlations
@@ -495,7 +365,7 @@ def calculate_pcors_pytorch(x, round_num, gene_name, data_name, cut_off_pcor, cu
         e4 = pcor_sampling_num[idx].tolist()
         e5 = [rho[i, j].item() for i, j in zip(idx[0].tolist(), idx[1].tolist())]
         e6 = [coex[i, j].item() for i, j in zip(idx[0].tolist(), idx[1].tolist())]
-        e7 = [data_name] * len(e1)
+        e7 = [project_name] * len(e1)
 
         SigEdges = pd.DataFrame({
             'GeneA': e1,
@@ -511,17 +381,49 @@ def calculate_pcors_pytorch(x, round_num, gene_name, data_name, cut_off_pcor, cu
         del idx, e1, e1n, e2, e2n, e3, e4, e5, e6, e7
         gc.collect()
         torch.cuda.empty_cache()
-
+        
         return round_num, coex.numpy(), pcor_all.numpy(), pcor_sampling_num.numpy(), rho.numpy(), SigEdges
 
     finally:
         del pcor_all, pcor_sampling_num, coex, rho, cellnum
         gc.collect()
         torch.cuda.empty_cache()
-        print("\nTask completed. Resources released.")
 
 
 
+def set_selects(gene_num):
+    """
+    Automatically determine selected_num based on the total number of genes (gene_num)
+
+    Parameters:
+        gene_num (int): Total number of genes in the input dataset (must be greater than 0).
+        
+    Returns:
+        selected_num (int): The number of genes selected in each iteration to calculate the partial correlation coefficient
+                         
+    Conditions (in strict order):
+        1. If gene_num is less than 500, use all genes and set target_sampling_count to 1.
+        2. If gene_num is in the range [500, 5000), set selected_num = 500 and use the user-specified target_sampling_count.
+        3. If gene_num is in the range [5000, 20000] (inclusive), set selected_num to ceil(gene_num / 10) and use the user-specified target_sampling_count.
+        4. If gene_num is greater than 20000, set selected_num = 2000 and use the user-specified target_sampling_count.
+    """
+    if gene_num <= 0:
+        raise ValueError("gene_num must be greater than 0.")
+
+    # Condition 1: When gene_num is less than 500
+    elif gene_num < 500:
+        selected_num = gene_num
+    # Condition 2: When gene_num is between 500 and 5000
+    elif gene_num < 5000:
+        selected_num = 500
+    # Condition 3: When gene_num is between 5000 and 20000 (inclusive)
+    elif gene_num <= 20000:
+        selected_num = math.ceil(gene_num / 10)
+    # Condition 4: When gene_num is greater than 20000
+    else:
+        selected_num = 2000
+
+    return selected_num
 
 
 def estimate_rounds(gene_num, selected_num, sampling_num):
@@ -546,3 +448,5 @@ def estimate_rounds(gene_num, selected_num, sampling_num):
     round_num = math.ceil(round_num)
 
     return round_num
+
+
