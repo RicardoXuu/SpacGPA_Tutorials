@@ -12,23 +12,25 @@ from .create_ggm import FDRResults
 
 def save_ggm(self, file_path):
     """
-    将 create_ggm 对象保存为 HDF5 文件，包含元数据、表达矩阵、部分相关结果以及后续生成的数据。
+    save create_ggm object to HDF5 file, 
+    including metadata, expression matrix, partial correlation results, and subsequent generated data (such as FDR, modules, etc.).
     
-    参数:
-        file_path: 保存文件的路径
+    Parameters:
+        file_path: str, the path to save the HDF5 file.
     """
-    # 删除可能存在的文件
+    # delete the h5 file if it already exists
     if os.path.exists(file_path):
         os.remove(file_path)
     with h5py.File(file_path, 'w') as f:
-        # 保存元数据
+        # Save metadata
         meta_grp = f.create_group("metadata")
         meta_grp.attrs['round_num'] = self.round_num
+        meta_grp.attrs['selected_num'] = self.selected_num
+        meta_grp.attrs['target_sampling_time'] = self.target_sampling_time
         meta_grp.attrs['gene_num'] = self.gene_num
         meta_grp.attrs['project_name'] = self.project_name
         meta_grp.attrs['cut_off_pcor'] = self.cut_off_pcor
         meta_grp.attrs['cut_off_coex_cell'] = self.cut_off_coex_cell
-        meta_grp.attrs['selected_num'] = self.selected_num
         meta_grp.attrs['seed_used'] = self.seed_used
         meta_grp.attrs['run_mode'] = self.run_mode
         meta_grp.attrs['double_precision'] = self.double_precision
@@ -38,19 +40,18 @@ def save_ggm(self, file_path):
         meta_grp.attrs['FDR_control'] = self.FDR_control
         meta_grp.attrs['FDR_threshold'] = self.FDR_threshold
         meta_grp.attrs['auto_adjust'] = self.auto_adjust
-        meta_grp.attrs['target_sampling_count'] = self.target_sampling_count
         meta_grp.create_dataset("gene_name", data=np.array(self.gene_name, dtype="S"))
         meta_grp.create_dataset("sample_name", data=np.array(self.sample_name, dtype="S"))
         meta_grp.attrs['samples_num'] = self.samples_num
 
-        # 保存表达矩阵（CSR 格式）
+        # Save expression matrix as CSR format
         matrix_grp = f.create_group("matrix")
         matrix_grp.create_dataset("data", data=self.matrix.data)
         matrix_grp.create_dataset("indices", data=self.matrix.indices)
         matrix_grp.create_dataset("indptr", data=self.matrix.indptr)
         matrix_grp.attrs["shape"] = self.matrix.shape
 
-        # 保存部分相关计算结果
+        # Save partial correlation results
         results_grp = f.create_group("results")
         results_grp.create_dataset("coexpressed_cell_num", data=self.coexpressed_cell_num)
         results_grp.create_dataset("pcor_all", data=self.pcor_all)
@@ -62,7 +63,7 @@ def save_ggm(self, file_path):
             results_grp.create_dataset("SigEdges_csv", data=np.array([csv_str], dtype=dt))
 
 
-        # 保存 FDR 结果（如果存在）
+        # save FDR results(if exists)
         if self.fdr is not None:
             fdr_grp = f.create_group("FDR")
             fdr_grp.attrs["permutation_fraction"] = self.fdr.permutation_fraction
@@ -77,19 +78,17 @@ def save_ggm(self, file_path):
             fdr_grp.create_dataset("permutation_pcor_all", data=self.fdr.permutation_pcor_all)
             fdr_grp.create_dataset("permutation_pcor_sampling_num", data=self.fdr.permutation_pcor_sampling_num)
             fdr_grp.create_dataset("permutation_rho_all", data=self.fdr.permutation_rho_all)
-            # 保存 permutation_SigEdges
             if self.fdr.permutation_SigEdges is not None:
                 csv_str_fdr = self.fdr.permutation_SigEdges.to_csv(index=False)
                 dt = h5py.string_dtype(encoding='utf-8')
                 fdr_grp.create_dataset("permutation_SigEdges_csv", data=np.array([csv_str_fdr], dtype=dt))
-            # 保存 fdr summary
             if hasattr(self.fdr, "summary") and self.fdr.summary is not None:
                 csv_str_summary = self.fdr.summary.to_csv(index=False)
                 dt = h5py.string_dtype(encoding='utf-8')
                 fdr_grp.create_dataset("fdr_summary_csv", data=np.array([csv_str_summary], dtype=dt))
 
 
-        # 保存 modules, modules_summary, go_enrichment, mp_enrichment（如果存在）
+        # Save modules, modules_summary, go_enrichment, mp_enrichment (if exists)
         if hasattr(self, "modules") and self.modules is not None:
             csv_str_mod = self.modules.to_csv(index=False)
             dt = h5py.string_dtype(encoding='utf-8')
@@ -112,24 +111,23 @@ def save_ggm(self, file_path):
 
 def load_ggm(file_path):
     """
-    从 HDF5 文件中加载 create_ggm 对象，包括元数据、表达矩阵、部分相关结果以及后续生成的数据（如 FDR、modules 等）。
-    该函数不会调用 create_ggm.__init__ 中的计算部分，仅恢复保存时存储的数据结构。
-    
-    参数:
-        file_path: 保存 create_ggm 对象的 HDF5 文件路径。
-        
-    返回:
-        obj: 加载后的 create_ggm 对象。
+    Load create_ggm object from HDF5 file.
+
+    Parameters:
+        file_path: str, the path to the HDF5 file.
+    return:
+        create_ggm object    
     """
     with h5py.File(file_path, 'r') as f:
-        # --- 加载元数据 ---
+        # Load metadata
         meta_grp = f['metadata']
-        round_num = meta_grp.attrs['round_num'].item()
+        round_num = meta_grp.attrs['round_num'].item()        
+        selected_num = meta_grp.attrs['selected_num'].item()
+        target_sampling_time = meta_grp.attrs['target_sampling_time'].item()
         gene_num = meta_grp.attrs['gene_num'].item()
         project_name = meta_grp.attrs['project_name']
         cut_off_pcor = meta_grp.attrs['cut_off_pcor'].item()
         cut_off_coex_cell = meta_grp.attrs['cut_off_coex_cell'].item()
-        selected_num = meta_grp.attrs['selected_num'].item()
         seed_used = meta_grp.attrs['seed_used'].item()
         run_mode = meta_grp.attrs['run_mode'].item()
         double_precision = bool(meta_grp.attrs['double_precision'])
@@ -139,13 +137,12 @@ def load_ggm(file_path):
         FDR_control = bool(meta_grp.attrs['FDR_control'])
         FDR_threshold = meta_grp.attrs['FDR_threshold'].item()
         auto_adjust = bool(meta_grp.attrs['auto_adjust'])
-        target_sampling_count = meta_grp.attrs['target_sampling_count'].item()
         
         gene_name = np.array(meta_grp['gene_name'], dtype='U')
         sample_name = np.array(meta_grp['sample_name'], dtype='U')
         samples_num = meta_grp.attrs['samples_num'].item()
 
-        # --- 加载表达矩阵 ---
+        # Load expression matrix
         matrix_grp = f['matrix']
         data = matrix_grp['data'][:]
         indices = matrix_grp['indices'][:]
@@ -153,7 +150,7 @@ def load_ggm(file_path):
         shape = matrix_grp.attrs['shape']
         matrix = sp.csr_matrix((data, indices, indptr), shape=shape)
 
-        # --- 加载部分相关计算结果 ---
+        # Load partial correlation results
         results_grp = f['results']
         coexp = results_grp['coexpressed_cell_num'][:]
         pcor_all = results_grp['pcor_all'][:]
@@ -166,10 +163,9 @@ def load_ggm(file_path):
         else:
             SigEdges = None
 
-        # --- 加载 FDR 结果（如果存在） ---
+        # Load FDR results (if exists)
         if "FDR" in f:
             fdr_grp = f["FDR"]
-            # 假设 FDRResults 已经定义
             fdr = FDRResults()
             fdr.permutation_fraction = fdr_grp.attrs["permutation_fraction"].item()
             fdr.FDR_threshold = fdr_grp.attrs["FDR_threshold"].item()
@@ -211,7 +207,7 @@ def load_ggm(file_path):
         else:
             fdr = None
 
-        # --- 加载 modules, modules_summary, go_enrichment, mp_enrichment（如果存在） ---
+        # Load modules, modules_summary, go_enrichment, mp_enrichment (if exists)
         if "modules_csv" in f:
             csv_bytes_mod = f["modules_csv"][()][0]
             csv_str_mod = csv_bytes_mod.decode('utf-8') if isinstance(csv_bytes_mod, bytes) else csv_bytes_mod
@@ -239,12 +235,12 @@ def load_ggm(file_path):
 
         gc.collect()
 
-    # --- 使用 __new__ 创建实例，不调用 __init__ ---
+    # Create an empty object using __new__ method not calling __init__
     obj = create_ggm.__new__(create_ggm)
     obj.matrix = matrix
     obj.round_num = round_num
     obj.selected_num = selected_num
-    obj.target_sampling_count = target_sampling_count
+    obj.target_sampling_time = target_sampling_time
     obj.gene_num = gene_num
     obj.gene_name = gene_name
     obj.samples_num = samples_num

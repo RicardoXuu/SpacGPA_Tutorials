@@ -27,7 +27,7 @@ os.getcwd()
 
 # %%
 #from SpacGPA import *
-import SpacGPA as sg
+import SpacGPA as sg    
 
 # %%
 # 读取数据
@@ -102,20 +102,17 @@ ggm_gpu_32.adjust_cutoff(pcor_threshold=0.059)
 ggm_gpu_32.find_modules(methods='mcl-hub',
                         expansion=2, inflation=2, max_iter=1000, tol=1e-6, pruning_threshold=1e-5,
                         min_module_size=10, topology_filtering=True, 
-                        convert_to_symbols=False, species='mouse')
+                        convert_to_symbols=True, species='mouse')
 print(ggm_gpu_32.modules_summary)
 
+# %%
+ggm_gpu_32.modules
 # %%
 sg.save_ggm(ggm_gpu_32, "data/ggm_gpu_32.h5")
 del ggm_gpu_32
 gc.collect()
 ggm_gpu_32 = sg.load_ggm("data/ggm_gpu_32.h5")
 ggm_gpu_32
-
-
-# %%
-M01_edges = ggm_gpu_32.get_module_edges("M01")
-print(M01_edges)
 
 # %%
 ggm_gpu_32.go_enrichment_analysis(species='mouse',padjust_method="BH",pvalue_cutoff=0.05)
@@ -134,6 +131,9 @@ ggm_gpu_32
 ggm_gpu_32.mp_enrichment_analysis(species='mouse',padjust_method="BH",pvalue_cutoff=0.05)
 
 # %%
+ggm_gpu_32.mp_enrichment
+
+# %%
 sg.save_ggm(ggm_gpu_32, "data/ggm_gpu_32.h5")
 del ggm_gpu_32
 gc.collect()
@@ -141,9 +141,21 @@ ggm_gpu_32 = sg.load_ggm("data/ggm_gpu_32.h5")
 ggm_gpu_32
 
 
+# %%
+M1_edges = ggm_gpu_32.get_module_edges("M01")
+M1_anno = ggm_gpu_32.get_module_anno("M01", add_enrich_info=True, top_n=5)
 
 # %%
-print(ggm_gpu_32.go_enrichment)
+M1_edges = sg.get_module_edges(ggm_gpu_32, "M01")
+M1_anno = sg.get_module_anno(ggm_gpu_32, "M01", add_enrich_info=True, top_n=5)
+
+
+# %%
+sg.save_ggm(ggm_gpu_32, "data/ggm_gpu_32.h5")
+del ggm_gpu_32
+gc.collect()
+ggm_gpu_32 = sg.load_ggm("data/ggm_gpu_32.h5")
+ggm_gpu_32
 
 
 # %%
@@ -177,20 +189,19 @@ print(ggm_gpu_32.go_enrichment)
 
 # %%
 # 问题7，设计函数，提取指定模块的edges用于绘图。
+# 解决
 
 # %%
 # 问题8，设计函数，提取模块的Annotation信息，添加可选参数提取GO或者MP的注释信息。
+# 解决
 
 # %%
 # 问题9，修改部分代码的打印信息
+# 解决
 # 1， MCL改为MCL-Hub，MCL-Original改为MCL
 # 2， fdr.fdr改为fdr.summary
 # 3， 设计了__repr__函数，用于打印ggm的基本信息
 # 4， 在fdr_control和adjust_cutoff函数中添加了部分打印信息
-
-# %%
-# 问题8，优化参数命名
-
 
 
 

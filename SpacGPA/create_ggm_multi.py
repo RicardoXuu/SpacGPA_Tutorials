@@ -6,6 +6,7 @@ from anndata import AnnData
 import time
 import gc
 
+from .create_ggm import FDRResults
 from .calculate_pcors import calculate_pcors_pytorch
 from .calculate_pcors import set_selects, estimate_rounds
 from .find_modules import run_mcl, run_louvain, run_mcl_original
@@ -14,27 +15,9 @@ from .module_show import get_module_anno as get_anno
 from .enrich_analysis import go_enrichment_analysis as run_go
 from .enrich_analysis import mp_enrichment_analysis as run_mp
 
-class FDRResults:
 
-    def __init__(self):
-        """
-        Class to store FDR results.
-        """   
-
-        self.permutation_fraction = None 
-        self.permutation_matrix = None
-        self.permutation_gene_name = None
-        self.permutation_coexpressed_cell_num = None
-        self.permutation_pcor_all = None
-        self.permutation_pcor_sampling_num = None
-        self.permutation_rho_all = None
-        self.permutation_SigEdges = None
-        self.FDR_threshold = None
-        self.summary = None
-
-
-class create_ggm:   
-    def __init__(self, x, round_num=None, selected_num=None, target_sampling_time=100, 
+class create_ggm_multi:   
+    def __init__(self, adata_list, genes_used="intersection", round_num=None, selected_num=None, target_sampling_time=100, 
                  gene_name=None, sample_name=None, project_name='na',
                  cut_off_pcor=0.03, cut_off_coex_cell=10,  
                  use_chunking=True, chunk_size=5000, 
@@ -42,11 +25,15 @@ class create_ggm:
                  FDR_control=False, FDR_threshold=0.01, auto_adjust=False):
         """
         Instruction:  
-        Class to create a ggm object.      
+        Class to create a ggm object for multiple datasets analysis.     
         Please Normalize The Expression Matrix Before Running; 
+        Due to the large amount of data, only CSR(Compressed Sparse Row) matrix format for adata.X is supported.
 
         Parameters: 
-        x : an expression matrix or AnnData object; spot(or cell) in row, gene in column.
+        adata_list : list of AnnData objects.   
+        genes_used : str, the strategy to select genes. can be either "intersection" or "union".
+                     "intersection" (default): use the intersection of genes across datasets.
+                     "union": use the union of genes across datasets and filter out genes expressed in few cells     
         round_num : Manually set the total number of iterations. The default as None, estimated by the gene number,
                      selected number and target sampling count.
         selected_num : Manually set the number of genes selected in each iteration to calculate the partial correlation 
@@ -74,7 +61,7 @@ class create_ggm:
         auto_adjust: optional, default as False. Whether to adjust the cutoff based on FDR results. only used when FDR_control is True.
         
         """
-
+        self.genes_used = genes_used
         self.matrix = None
         self.round_num = round_num
         self.selected_num = selected_num
@@ -109,7 +96,7 @@ class create_ggm:
         self.mp_enrichment = None
 
         # Validate and extract input
-        x, gene_name, sample_name = self._validate_and_extract_input(x, gene_name, sample_name)
+        x, gene_name, sample_name = self._validate_and_extract_input(adata_list, genes_used)
         self.matrix = sp.csr_matrix(x) 
         self.gene_name = gene_name
         self.sample_name = sample_name 
@@ -204,40 +191,103 @@ class create_ggm:
             s += "  FDR: None\n"
         return s
     
-    def _validate_and_extract_input(self, x, gene_name, sample_name):
-        print("Please Normalize The Expression Matrix Before Running!")
-        print("Loading Data.")
-        if isinstance(x, AnnData):
-            if x.X is None or x.var_names is None:
-                raise ValueError("AnnData object must have X and var_names.")
-            if not np.issubdtype(x.X.dtype, np.number):
+    def _validate_and_extract_input(self, adata_list, genes_used="intersection"):
+        """
+        Validate and extract input data from a list of AnnData objects.
+        
+        Parameters:
+            adata_list: list of AnnData objects.
+            genes_used: str, the strategy to select genes. can be either "intersection" or "union".
+                        "intersection" (default): use the intersection of genes across datasets.
+                        "union": use the union of genes across datasets and filter out genes expressed in few cells.
+        
+        Returns:
+            combined_matrix: scipy.sparse CSR matrix with merged data.
+            gene_names: numpy array of gene names used (after intersection/union and filtering).
+            combined_sample_names: numpy array of sample names (with dataset prefix).
+        """
+        
+        print("Please Normalize The Expression Matrices Before Running!")
+        print("Loading Data from AnnData list for Multi-Datasets Analysis...")
+        
+        if not isinstance(adata_list, list) or len(adata_list) == 0:
+            raise ValueError("adata_list must be a non-empty list of AnnData objects.")
+        
+        # Check if all elements are AnnData objects
+        for adata in adata_list:
+            if not hasattr(adata, "X") or not hasattr(adata, "var_names") or adata.X is None or adata.var_names is None:
+                raise ValueError("Each AnnData object must have X and var_names.")
+            if not np.issubdtype(adata.X.dtype, np.number):
                 raise ValueError("Expression data must be numeric.")
-            x_matrix = x.X
-            if isinstance(x_matrix, np.matrix):
-                x_matrix = sp.csr_matrix(np.asarray(x))
-            elif isinstance(x, np.ndarray):
-                x_matrix = sp.csr_matrix(x)
-            gene_name = np.array(x.var_names)
-            sample_name = np.array(x.obs_names)
-        elif isinstance(x, np.matrix):
-            x_matrix = sp.csr_matrix(np.asarray(x))
-        elif isinstance(x, np.ndarray): 
-            x_matrix = sp.csr_matrix(x)
-        elif sp.issparse(x):
-            x_matrix = x_matrix    
+        
+        if genes_used == "intersection":
+            # use intersection: take only the genes that are present in all datasets
+            intersection_genes = list(adata_list[0].var_names)
+            for adata in adata_list[1:]:
+                intersection_genes = [gene for gene in intersection_genes if gene in adata.var_names]
+            if len(intersection_genes) == 0:
+                raise ValueError("No overlapping genes found among the provided AnnData objects.")
+            print(f"Found {len(intersection_genes)} intersection genes across datasets.")
+            
+            matrix_list = []
+            sample_names_list = []
+            for i, adata in enumerate(adata_list):
+                subset_adata = adata[:, intersection_genes]
+                matrix_list.append(sp.csr_matrix(subset_adata.X))
+                prefix = f"Dataset{i+1}_"
+                prefixed_names = np.array([prefix + str(name) for name in subset_adata.obs_names])
+                sample_names_list.append(prefixed_names)
+                
+            combined_matrix = sp.vstack(matrix_list)
+            combined_sample_names = np.concatenate(sample_names_list)
+                
+            return combined_matrix, np.array(intersection_genes), combined_sample_names
+        
+        elif genes_used == "union":
+            # use union: take all genes and filter out those expressed in few cells
+            union_genes = set()
+            for adata in adata_list:
+                union_genes |= set(adata.var_names)
+            union_genes = sorted(list(union_genes))
+            print(f"Found {len(union_genes)} union genes across datasets.")
+            
+            # 构建映射字典：将每个基因映射到并集中的新索引
+            mapping = { gene: i for i, gene in enumerate(union_genes) }
+            
+            matrix_list = []
+            sample_names_list = []
+            for i, adata in enumerate(adata_list):
+                # adata.X 已为 CSR 格式，先转换为 COO 格式便于索引重排
+                X_coo = adata.X.tocoo()
+                orig_names = np.array(adata.var_names)
+                # 将原始的每个列索引映射到 union_genes 中的索引
+                mapping_arr = np.array([ mapping[gene] for gene in orig_names ])
+                new_col = mapping_arr[X_coo.col]
+                # 构造新的 COO 矩阵，形状为 (n_obs, len(union_genes))
+                X_new = sp.coo_matrix((X_coo.data, (X_coo.row, new_col)), shape=(adata.n_obs, len(union_genes)))
+                X_new = X_new.tocsr()
+                print(X_new.shape)
+                matrix_list.append(X_new)
+                prefix = f"Dataset{i+1}_"
+                prefixed_names = np.array([prefix + str(name) for name in adata.obs_names])
+                sample_names_list.append(prefixed_names)
+                
+            combined_matrix = sp.vstack(matrix_list)
+            print(combined_matrix.shape)
+            combined_sample_names = np.concatenate(sample_names_list)
+            
+            # 过滤基因：保留在合并矩阵中至少在10个细胞中有表达的基因
+            gene_expression_counts = np.array((combined_matrix != 0).sum(axis=0)).flatten()
+            mask = gene_expression_counts >= 10
+            filtered_genes = np.array(union_genes)[mask]
+            filtered_matrix = combined_matrix[:, mask]
+            print(f"After filtering, {len(filtered_genes)} genes remain (expressed in at least 10 cells).")
+            
+            return filtered_matrix, filtered_genes, combined_sample_names
+        
         else:
-            raise ValueError("x must be a 2D cell x gene matrix(accepted formats include scipy sparse CSR matrix, numpy ndarray) or an AnnData object.")
-        
-        if x_matrix.ndim != 2:
-            raise ValueError("x must be a 2D cell x gene matrix.(accepted formats include scipy sparse CSR matrix, numpy ndarray)")
-        
-        if gene_name is None or len(gene_name) != x_matrix.shape[1]:
-            raise ValueError("Length of gene_name must match the number of columns in x.")
-        
-        if sample_name is None or len(sample_name) != x_matrix.shape[0]:
-            raise ValueError("Length of sample_name must match the number of rows in x.")
-        
-        return x_matrix, gene_name, sample_name
+            raise ValueError("genes_used should be either 'intersection' or 'union'.")
+
 
     def _initialize_variables(self, x):
         self.samples_num = x.shape[0]

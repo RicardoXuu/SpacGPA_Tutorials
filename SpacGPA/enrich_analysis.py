@@ -12,6 +12,8 @@ from scipy.stats import hypergeom
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "Ref_for_Enrichment")
 
+
+
 # go_enrichment_analysis
 def go_enrichment_analysis(self,
                            species="mouse",
@@ -120,7 +122,7 @@ def go_enrichment_analysis(self,
                 # Prepare the new rows for the valid GO terms
                 new_rows = []
                 for idx, go_id in enumerate(valid_go_ids):
-                    genes_with_go = "/".join(sorted([gene_symbl[gene] for gene in module_go[module_go[1] == go_id][0]]))
+                    genes_with_go = "/".join(sorted(module_go[module_go[1] == go_id][0].tolist()))
                     new_row = {
                         "module_id": i,
                         "module_size": module_size_val,
@@ -259,7 +261,7 @@ def mp_enrichment_analysis(self,
                 # Prepare the new rows for the valid MP terms
                 new_rows = []
                 for idx, mp_id in enumerate(valid_mp_ids):
-                    genes_with_mp = "/".join(sorted([gene_symbl[gene] for gene in module_mp[module_mp[1] == mp_id][0]]))
+                    genes_with_mp = "/".join(sorted(module_mp[module_mp[1] == mp_id][0].tolist()))
                     new_row = {
                         "module_id": i,
                         "module_size": module_size_val,
@@ -464,44 +466,3 @@ def get_GO_annoinfo(species_name=None,
             f.write(f"{gene_id}\t{sym}\n")
 
     print(f"Files written:\n  {out_annotation_file}\n  {out_gene_symbl_file}")
-
-
-
-# mapping_gene_2_go
-def mapping_gene_2_go(self, module_id, species="mouse"):
-    """
-    Map genes to GO terms using the GO annotation information in the ggm object.
-    """
-    # Check if the GO annotation files exist
-    go_annotation_file = f"{DATA_DIR}/mouse.GO.annotation.txt.gz"
-    gene_symbl_file = f"{DATA_DIR}/mouse.gene.symbl.txt.gz"
-    if os.path.exists(go_annotation_file) and os.path.exists(gene_symbl_file):
-        pass
-    else:
-        raise ValueError("GO annotation files not found.")
-    
-    # Read in GO annotation file
-    allgo = pd.read_csv(go_annotation_file, sep="\t", header=None).drop_duplicates()
-    allgo = allgo[allgo[0].isin(self.gene_name.tolist())]  # Filter by background genes
-    bk_go_count = allgo[1].value_counts()
-    bk_go_count = bk_go_count[bk_go_count < 2500]  # Filter GO terms with < 2500 annotations
-    allgo = allgo[allgo[1].isin(bk_go_count.index)]
-
-    # Read in gene symbols
-    gene_table = pd.read_csv(gene_symbl_file, sep="\t", header=None, comment="#", quoting=3)
-    gene_symbl = gene_table.set_index(0)[1].to_dict()
-    all_genes = list(set(self.modules['gene'].tolist() + self.gene_name.tolist()))
-    missing_genes = set(all_genes) - set(gene_symbl.keys())
-    gene_symbl.update({gene: gene for gene in missing_genes})
-
-    # Map genes to GO terms
-    gene2go = {}
-    for gene in all_genes:
-        go_terms = allgo[allgo[0] == gene][1].tolist()
-        go_terms = [go for go in go_terms if go in bk_go_count.index]
-        go_terms = [go for go in go_terms if go in gene_symbl.keys()]
-        go_terms = list(set(go_terms))
-        gene2go[gene] = go_terms
-
-    self.gene2go = gene2go
-    print(f"Gene to GO mapping completed. Found {len(gene2go)} genes with GO terms.")    

@@ -376,7 +376,7 @@ def calculate_pcors_pytorch(x, round_num, selected_num, gene_name, project_name,
             'Cell_num_A': e1n,
             'Cell_num_B': e2n,
             'Cell_num_coexpressed': e6,
-            'Dataset': e7,
+            'Project': e7,
         })
         del idx, e1, e1n, e2, e2n, e3, e4, e5, e6, e7
         gc.collect()
@@ -426,7 +426,7 @@ def set_selects(gene_num):
     return selected_num
 
 
-def estimate_rounds(gene_num, selected_num, sampling_num):
+def estimate_rounds(gene_num, selected_num, target_sampling_count):
     """
     Instruction:
     Estimate round_num based on total sample size, selected sample size and target sampling number
@@ -434,7 +434,7 @@ def estimate_rounds(gene_num, selected_num, sampling_num):
     Parameters:
     gene_num (int): total number of genes in the dataset
     selected_num (int): number of genes selected in each sampling
-    sampling_num (int): target sampling number
+    target_sampling_count (int): total expected number of times each gene pair is collected in all iterations。       
 
     Returns:
     int: estimated round_num
@@ -444,7 +444,7 @@ def estimate_rounds(gene_num, selected_num, sampling_num):
     
     p_single_gene = selected_num / gene_num
     p_two_genes = p_single_gene ** 2
-    round_num = sampling_num / p_two_genes
+    round_num = target_sampling_count / p_two_genes
     round_num = math.ceil(round_num)
 
     return round_num
