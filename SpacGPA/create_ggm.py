@@ -112,8 +112,6 @@ class create_ggm:
         self.go_enrichment = None
         self.mp_enrichment = None
 
-
-
         # Validate and extract input
         x, gene_name, sample_name = self._validate_and_extract_input(x, gene_name, sample_name)
         self.matrix = sp.csr_matrix(x) 
@@ -181,7 +179,35 @@ class create_ggm:
                                         coex_cell_threshold=self.cut_off_coex_cell) 
         
         print("\nTask completed. Resources released.")
-        
+    
+    def __repr__(self):
+        # Create a string representation of the object
+        s = f"View of ggm object: {self.project_name}\n"
+        s += "MetaInfo:\n"
+        s += f"  Gene Number: {self.gene_num}\n"
+        s += f"  Sample Number: {self.samples_num}\n"
+        s += f"  Pcor Thereshold: {self.cut_off_pcor}\n"
+        s += f"  Coexpressed Cells Number Thereshold: {self.cut_off_coex_cell}\n"
+        s += "\nResults:\n"
+        if self.SigEdges is not None:
+            s += f"  SigEdges: DataFrame with {self.SigEdges.shape[0]} significant gene pairs\n"
+        else:
+            s += "  SigEdges: None\n"
+        if self.modules is not None:
+            unique_mods = self.modules['module_id'].unique() if 'module_id' in self.modules.columns else None
+            s += f"  modules: {len(unique_mods)} modules with {self.modules.shape[0]} genes\n"
+        else:
+            s += "  modules: None\n"
+        if self.modules_summary is not None:
+            s += f"  modules_summary: DataFrame with {self.modules_summary.shape[0]} rows\n"
+        else:
+            s += "  modules_summary: None\n"
+        if self.fdr is not None:
+            s += "  FDR: Exists\n"
+        else:
+            s += "  FDR: None\n"
+        return s
+    
     def _validate_and_extract_input(self, x, gene_name, sample_name):
         print("Please Normalize The Expression Matrix Before Running!")
         print("Loading Data.")
@@ -221,47 +247,24 @@ class create_ggm:
         self.samples_num = x.shape[0]
         self.gene_num = x.shape[1]
     
-    def __repr__(self):
-        # Create a string representation of the object
-        s = f"View of ggm object: {self.project_name}\n"
-        s += "MetaInfo:\n"
-        s += f"  Gene Number: {self.gene_num}\n"
-        s += f"  Sample Number: {self.samples_num}\n"
-        s += f"  Pcor Thereshold: {self.cut_off_pcor}\n"
-        s += f"  Coexpressed Cells Number Thereshold: {self.cut_off_coex_cell}\n"
-        s += "\nResults:\n"
-        if self.SigEdges is not None:
-            s += f"  SigEdges: DataFrame with {self.SigEdges.shape[0]} significant gene pairs\n"
-        else:
-            s += "  SigEdges: None\n"
-        if self.modules is not None:
-            unique_mods = self.modules['module_id'].unique() if 'module_id' in self.modules.columns else None
-            s += f"  modules: {len(unique_mods)} modules with {self.modules.shape[0]} genes\n"
-        else:
-            s += "  modules: None\n"
-        if self.modules_summary is not None:
-            s += f"  modules_summary: DataFrame with {self.modules_summary.shape[0]} rows\n"
-        else:
-            s += "  modules_summary: None\n"
-        if self.fdr is not None:
-            s += "  FDR: Exists\n"
-        else:
-            s += "  FDR: None\n"
-        return s
-
+    
     def fdr_control(self, permutation_fraction=1.0, FDR_threshold=0.01):
         """
         Perform FDR control by permuting gene columns and calculating the necessary statistics.
 
         Parameters:
         - permutation_fraction: Fraction of genes to permute.
+        - FDR_threshold: The FDR threshold that determines the significance of the Pcors Therehold.
 
         Returns:
         - fdr: The FDR results object.
         """
         self.FDR_threshold = FDR_threshold
         run_mode = self.run_mode
-        device = 'cuda' if run_mode != 0 else 'cpu'
+        if run_mode == 0:
+            device = 'cpu'
+        else:   
+            device = 'cuda' if run_mode != 0 else 'cpu'
         
         print("\nPerforming FDR control...")
         
@@ -448,11 +451,11 @@ class create_ggm:
 
     def adjust_cutoff(self, pcor_threshold=0.03, coex_cell_threshold=10):
         """
-        Instruction:
+        Adjust the Pcor and coexpressed cell number thresholds based on FDR results.
 
         Parameters:
-
-        Returns:
+            pcor_threshold: The new Pcor threshold.
+            oex_cell_threshold: The new coexpressed cell number threshold.
 
         """   
         print("Adjusting Threshold of Pcor and coexpressed cell number...")
@@ -489,26 +492,28 @@ class create_ggm:
                                         'Cell_num_coexpressed': e6, 'Dataset': e7})
         print("Found", self.SigEdges.shape[0], "significant co-expressed gene pairs with partial correlation >=", cut_off_pcor, "and co-expressed cell number >=", cut_off_coex_cell)
 
-    def find_modules(self, methods='mcl', 
-                expansion=2, inflation=1.7, max_iter=1000, tol=1e-6, pruning_threshold=1e-5,
-                resolution=1.0,
-                scheme=7, threads=1,
-                min_module_size=10, topology_filtering=True,
-                convert_to_symbols=False, species='human'):
+    def find_modules(self, methods='mcl-hub', 
+                    expansion=2, inflation=1.7, add_self_loops='mean', 
+                    max_iter=1000, tol=1e-6, pruning_threshold=1e-5,
+                    resolution=1.0,
+                    scheme=7, threads=1,
+                    min_module_size=10, topology_filtering=True,
+                    convert_to_symbols=False, species='human'):
         """
         Find modules using the specified method.
 
         Parameters:
-        - methods: The method to use for module detection. Options are 'mcl', 'louvain' or 'mcl_original'.
-        - mcl parameters:
+        - methods: The method to use for module detection. Options are 'mcl-hub', 'louvain' or 'mcl'.
+        - mcl-hub parameters:
             - expansion: The mcl expansion parameter.
             - inflation: The mcl inflation parameter.
+            - add_self_loops: Method for adding self-loops to the adjacency matrix: 'min', 'mean', 'max', 'dynamic', or 'none'.            
             - max_iter: The maximum number of iterations for mcl.
             - tol: The convergence threshold for mcl.
             - pruning_threshold: The mcl pruning threshold.
         - louvain parameters:
             - resolution: The resolution parameter for Louvain.
-        - mcl_original parameters:
+        - mcl parameters:
             - inflation: The mcl inflation parameter.
             - scheme: The mcl scheme parameter.
             - threads: The number of threads to use for mcl.
@@ -516,9 +521,10 @@ class create_ggm:
         - topology_filtering: Whether to apply topology filtering for each module.
         - convert_to_symbols: Whether to convert gene IDs to gene symbols.
         - species: The species for gene ID conversion.
+
         """
-        if methods == 'mcl':
-            print("\nFind modules using MCL...")
+        if methods == 'mcl-hub':
+            print("\nFind modules using MCL-Hub...")
             print(f"Current Pcor: {self.cut_off_pcor}")
             print(f"Total significantly co-expressed gene pairs: {len(self.SigEdges)}")
             inflation = inflation
@@ -526,8 +532,9 @@ class create_ggm:
             max_iter = max_iter
             tol = tol
             pruning_threshold = pruning_threshold
-            module_df = run_mcl(self.SigEdges, 
-                                inflation=inflation, expansion=expansion, max_iter=max_iter, tol=tol, pruning_threshold=pruning_threshold,
+            module_df = run_mcl(self.SigEdges, run_mode=self.run_mode,
+                                inflation=inflation, expansion=expansion, add_self_loops=add_self_loops,
+                                max_iter=max_iter, tol=tol, pruning_threshold=pruning_threshold,
                                 min_module_size=min_module_size, topology_filtering=topology_filtering,
                                 convert_to_symbols=convert_to_symbols, species=species)
             self.modules = module_df.copy()
@@ -541,8 +548,8 @@ class create_ggm:
                                     min_module_size=min_module_size, topology_filtering=topology_filtering,
                                     convert_to_symbols=convert_to_symbols, species=species)
             self.modules = module_df.copy()                          
-        elif methods == 'mcl_original':
-            print("\nFind modules using MCL original...")
+        elif methods == 'mcl':
+            print("\nFind modules using MCL ...")
             print(f"Current Pcor: {self.cut_off_pcor}")
             print(f"Total significantly co-expressed gene pairs: {len(self.SigEdges)}")
             module_df = run_mcl_original(self.SigEdges,
@@ -551,7 +558,7 @@ class create_ggm:
                                         convert_to_symbols=convert_to_symbols, species=species) 
             self.modules = module_df.copy()   
         else:
-            raise ValueError("Invalid method. Use 'mcl', 'louvain', or 'mcl_original'.")
+            raise ValueError("Invalid method. Use 'mcl-hub', 'louvain', or 'mcl'.")
         
         if convert_to_symbols:
             modules_symbol = module_df.copy()
@@ -575,9 +582,9 @@ class create_ggm:
         """
         Extract edges within a module.
         Parameters:
-            - module_id: The ID of the module to extract.
+            module_id: The ID of the module to extract.
         Returns:
-            - module_edges: The edges within the module.
+            module_edges: The edges within the module.
         """
         module_list = self.modules['module_id'].unique()
         if module_id not in module_list:

@@ -26,7 +26,8 @@ os.chdir(workdir)
 os.getcwd()
 
 # %%
-from SpacGPA import *
+#from SpacGPA import *
+import SpacGPA as sg
 
 # %%
 # 读取数据
@@ -44,13 +45,13 @@ sc.pp.filter_genes(adata,min_cells=10)
 print(adata.X.shape)
 
 # 设置基因数目
-sc.pp.highly_variable_genes(adata, n_top_genes=1500)
+sc.pp.highly_variable_genes(adata, n_top_genes=5000)
 adata = adata[:, adata.var.highly_variable]
 print(adata.X.shape)
 
 # %%
 start_time = time.time()
-ggm_gpu_32 = create_ggm(adata,  
+ggm_gpu_32 = sg.create_ggm(adata,  
                         #round_num=500,
                         #selected_num=200,  
                         #target_sampling_count=200,
@@ -73,10 +74,10 @@ print(f"Time: {time.time() - start_time:.5f} s")
 ggm_gpu_32
 
 # %%
-save_ggm(ggm_gpu_32, "data/ggm_gpu_32.h5")
+sg.save_ggm(ggm_gpu_32, "data/ggm_gpu_32.h5")
 del ggm_gpu_32
 gc.collect()
-ggm_gpu_32 = load_ggm("data/ggm_gpu_32.h5")
+ggm_gpu_32 = sg.load_ggm("data/ggm_gpu_32.h5")
 ggm_gpu_32
 
 # %%
@@ -85,29 +86,30 @@ ggm_gpu_32.fdr_control()
 print(f"Time: {time.time() - start_time:.5f} s")
 
 # %%
-save_ggm(ggm_gpu_32, "data/ggm_gpu_32.h5")
+sg.save_ggm(ggm_gpu_32, "data/ggm_gpu_32.h5")
 del ggm_gpu_32
 gc.collect()
-ggm_gpu_32 = load_ggm("data/ggm_gpu_32.h5")
+ggm_gpu_32 = sg.load_ggm("data/ggm_gpu_32.h5")
 ggm_gpu_32
 
 # %%
-print(ggm_gpu_32.fdr.summary[ggm_gpu_32.fdr.summary['FDR'] <= 0.01])
+print(ggm_gpu_32.fdr.summary[ggm_gpu_32.fdr.summary['FDR'] <= 0.05])
 
 # %%
-ggm_gpu_32.adjust_cutoff(pcor_threshold=0.056)
+ggm_gpu_32.adjust_cutoff(pcor_threshold=0.059)
 
 # %%
-ggm_gpu_32.find_modules(methods='mcl',
+ggm_gpu_32.find_modules(methods='mcl-hub',
                         expansion=2, inflation=2, max_iter=1000, tol=1e-6, pruning_threshold=1e-5,
                         min_module_size=10, topology_filtering=True, 
                         convert_to_symbols=False, species='mouse')
 print(ggm_gpu_32.modules_summary)
+
 # %%
-save_ggm(ggm_gpu_32, "data/ggm_gpu_32.h5")
+sg.save_ggm(ggm_gpu_32, "data/ggm_gpu_32.h5")
 del ggm_gpu_32
 gc.collect()
-ggm_gpu_32 = load_ggm("data/ggm_gpu_32.h5")
+ggm_gpu_32 = sg.load_ggm("data/ggm_gpu_32.h5")
 ggm_gpu_32
 
 
@@ -122,20 +124,20 @@ ggm_gpu_32.go_enrichment_analysis(species='mouse',padjust_method="BH",pvalue_cut
 ggm_gpu_32.go_enrichment
 
 # %%
-save_ggm(ggm_gpu_32, "data/ggm_gpu_32.h5")
+sg.save_ggm(ggm_gpu_32, "data/ggm_gpu_32.h5")
 del ggm_gpu_32
 gc.collect()
-ggm_gpu_32 = load_ggm("data/ggm_gpu_32.h5")
+ggm_gpu_32 = sg.load_ggm("data/ggm_gpu_32.h5")
 ggm_gpu_32
 
 # %%
 ggm_gpu_32.mp_enrichment_analysis(species='mouse',padjust_method="BH",pvalue_cutoff=0.05)
 
 # %%
-save_ggm(ggm_gpu_32, "data/ggm_gpu_32.h5")
+sg.save_ggm(ggm_gpu_32, "data/ggm_gpu_32.h5")
 del ggm_gpu_32
 gc.collect()
-ggm_gpu_32 = load_ggm("data/ggm_gpu_32.h5")
+ggm_gpu_32 = sg.load_ggm("data/ggm_gpu_32.h5")
 ggm_gpu_32
 
 
@@ -147,6 +149,7 @@ print(ggm_gpu_32.go_enrichment)
 # %%
 # GGM计算相关的问题
 # 问题1，ggm计算的部分改为，create_ggm, 并整理ggm的数据架构，使其可以作为h5文件储存。
+# 解决
 
 # %%
 # 问题2，GO和MP函数内置到ggm。
@@ -170,13 +173,28 @@ print(ggm_gpu_32.go_enrichment)
 
 # %%
 # 问题6，放射状模块的去除需要更加严格
-# 待定
+# 待定，没有合适的标准
 
 # %%
-# 问题7，设计函数，提取指定模块的edges用于绘图。可以添加参数，考虑是否同时提取模块的GO和MP注释结果。
+# 问题7，设计函数，提取指定模块的edges用于绘图。
+
+# %%
+# 问题8，设计函数，提取模块的Annotation信息，添加可选参数提取GO或者MP的注释信息。
+
+# %%
+# 问题9，修改部分代码的打印信息
+# 1， MCL改为MCL-Hub，MCL-Original改为MCL
+# 2， fdr.fdr改为fdr.summary
+# 3， 设计了__repr__函数，用于打印ggm的基本信息
+# 4， 在fdr_control和adjust_cutoff函数中添加了部分打印信息
 
 # %%
 # 问题8，优化参数命名
+
+
+
+
+
 
 # %%
 adata
