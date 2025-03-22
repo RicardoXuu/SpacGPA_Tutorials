@@ -9,6 +9,7 @@ from io import StringIO
 
 from .create_ggm import create_ggm
 from .create_ggm import FDRResults
+from .create_ggm_multi import create_ggm_multi
 
 def save_ggm(self, file_path):
     """
@@ -24,6 +25,9 @@ def save_ggm(self, file_path):
     with h5py.File(file_path, 'w') as f:
         # Save metadata
         meta_grp = f.create_group("metadata")
+        # Save method if it is a create_ggm_multi object
+        if hasattr(self, 'method'):
+            meta_grp.attrs['method'] = self.method
         meta_grp.attrs['round_num'] = self.round_num
         meta_grp.attrs['selected_num'] = self.selected_num
         meta_grp.attrs['target_sampling_time'] = self.target_sampling_time
@@ -121,6 +125,12 @@ def load_ggm(file_path):
     with h5py.File(file_path, 'r') as f:
         # Load metadata
         meta_grp = f['metadata']
+        # Check if it is a create_ggm_multi object
+        if "method" in meta_grp.attrs:
+            method = meta_grp.attrs['method']
+            cls_to_use = create_ggm_multi
+        else:
+            cls_to_use = create_ggm
         round_num = meta_grp.attrs['round_num'].item()        
         selected_num = meta_grp.attrs['selected_num'].item()
         target_sampling_time = meta_grp.attrs['target_sampling_time'].item()
@@ -236,7 +246,10 @@ def load_ggm(file_path):
         gc.collect()
 
     # Create an empty object using __new__ method not calling __init__
-    obj = create_ggm.__new__(create_ggm)
+    obj = cls_to_use.__new__(cls_to_use)
+    # Initialize the object with the loaded data
+    if cls_to_use is create_ggm_multi:
+        obj.method = method
     obj.matrix = matrix
     obj.round_num = round_num
     obj.selected_num = selected_num

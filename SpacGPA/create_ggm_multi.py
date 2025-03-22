@@ -17,7 +17,7 @@ from .enrich_analysis import mp_enrichment_analysis as run_mp
 
 
 class create_ggm_multi:   
-    def __init__(self, adata_list, genes_used="intersection", round_num=None, selected_num=None, target_sampling_time=100, 
+    def __init__(self, adata_list, method="intersection", round_num=None, selected_num=None, target_sampling_time=100, 
                  gene_name=None, sample_name=None, project_name='na',
                  cut_off_pcor=0.03, cut_off_coex_cell=10,  
                  use_chunking=True, chunk_size=5000, 
@@ -31,7 +31,7 @@ class create_ggm_multi:
 
         Parameters: 
         adata_list : list of AnnData objects.   
-        genes_used : str, the strategy to select genes. can be either "intersection" or "union".
+        method : str, the strategy to select genes. can be either "intersection" or "union".
                      "intersection" (default): use the intersection of genes across datasets.
                      "union": use the union of genes across datasets and filter out genes expressed in few cells     
         round_num : Manually set the total number of iterations. The default as None, estimated by the gene number,
@@ -61,7 +61,7 @@ class create_ggm_multi:
         auto_adjust: optional, default as False. Whether to adjust the cutoff based on FDR results. only used when FDR_control is True.
         
         """
-        self.genes_used = genes_used
+        self.method = method
         self.matrix = None
         self.round_num = round_num
         self.selected_num = selected_num
@@ -96,7 +96,7 @@ class create_ggm_multi:
         self.mp_enrichment = None
 
         # Validate and extract input
-        x, gene_name, sample_name = self._validate_and_extract_input(adata_list, genes_used)
+        x, gene_name, sample_name = self._validate_and_extract_input(adata_list, method)
         self.matrix = sp.csr_matrix(x) 
         self.gene_name = gene_name
         self.sample_name = sample_name 
@@ -165,10 +165,11 @@ class create_ggm_multi:
     
     def __repr__(self):
         # Create a string representation of the object
-        s = f"View of ggm object: {self.project_name}\n"
+        s = f"View of ggm_multi object: {self.project_name}\n"
         s += "MetaInfo:\n"
-        s += f"  Gene Number: {self.gene_num}\n"
-        s += f"  Sample Number: {self.samples_num}\n"
+        s += f"  Method: {'Intersection' if self.method == 'intersection' else 'Union'}\n"
+        s += f"  Used Gene Number: {self.gene_num}\n"
+        s += f"  Overall Sample Number: {self.samples_num}\n"
         s += f"  Pcor Thereshold: {self.cut_off_pcor}\n"
         s += f"  Coexpressed Cells Number Thereshold: {self.cut_off_coex_cell}\n"
         s += "\nResults:\n"
@@ -191,13 +192,13 @@ class create_ggm_multi:
             s += "  FDR: None\n"
         return s
     
-    def _validate_and_extract_input(self, adata_list, genes_used="intersection"):
+    def _validate_and_extract_input(self, adata_list, method="intersection"):
         """
         Validate and extract input data from a list of AnnData objects.
         
         Parameters:
             adata_list: list of AnnData objects.
-            genes_used: str, the strategy to select genes. can be either "intersection" or "union".
+            method: str, the strategy to select genes. can be either "intersection" or "union".
                         "intersection" (default): use the intersection of genes across datasets.
                         "union": use the union of genes across datasets and filter out genes expressed in few cells.
         
@@ -220,7 +221,7 @@ class create_ggm_multi:
             if not np.issubdtype(adata.X.dtype, np.number):
                 raise ValueError("Expression data must be numeric.")
         
-        if genes_used == "intersection":
+        if method == "intersection":
             # use intersection: take only the genes that are present in all datasets
             intersection_genes = list(adata_list[0].var_names)
             for adata in adata_list[1:]:
@@ -234,16 +235,23 @@ class create_ggm_multi:
             for i, adata in enumerate(adata_list):
                 subset_adata = adata[:, intersection_genes]
                 matrix_list.append(sp.csr_matrix(subset_adata.X))
-                prefix = f"Dataset{i+1}_"
+                prefix = f"d{i+1}_"
                 prefixed_names = np.array([prefix + str(name) for name in subset_adata.obs_names])
                 sample_names_list.append(prefixed_names)
                 
             combined_matrix = sp.vstack(matrix_list)
             combined_sample_names = np.concatenate(sample_names_list)
-                
-            return combined_matrix, np.array(intersection_genes), combined_sample_names
+
+            # Filter genes: keep only those genes that are expressed in at least 10 cells in the combined matrix
+            gene_expression_counts = np.array((combined_matrix != 0).sum(axis=0)).flatten()
+            mask = gene_expression_counts >= 10
+            filtered_genes = np.array(intersection_genes)[mask]
+            filtered_matrix = combined_matrix[:, mask]
+            print(f"After filtering, {len(filtered_genes)} genes remain (expressed in at least 10 cells).")
+
+            return filtered_matrix, filtered_genes, combined_sample_names
         
-        elif genes_used == "union":
+        elif method == "union":
             # use union: take all genes and filter out those expressed in few cells
             union_genes = set()
             for adata in adata_list:
@@ -251,32 +259,30 @@ class create_ggm_multi:
             union_genes = sorted(list(union_genes))
             print(f"Found {len(union_genes)} union genes across datasets.")
             
-            # 构建映射字典：将每个基因映射到并集中的新索引
+            # Create a mapping from gene name to index in the union_genes list
             mapping = { gene: i for i, gene in enumerate(union_genes) }
             
             matrix_list = []
             sample_names_list = []
             for i, adata in enumerate(adata_list):
-                # adata.X 已为 CSR 格式，先转换为 COO 格式便于索引重排
+                # Convert the matrix to COO format
                 X_coo = adata.X.tocoo()
                 orig_names = np.array(adata.var_names)
-                # 将原始的每个列索引映射到 union_genes 中的索引
+                # Map the gene names to the union_genes list
                 mapping_arr = np.array([ mapping[gene] for gene in orig_names ])
                 new_col = mapping_arr[X_coo.col]
-                # 构造新的 COO 矩阵，形状为 (n_obs, len(union_genes))
+                # Create a new COO matrix with the mapped column indices
                 X_new = sp.coo_matrix((X_coo.data, (X_coo.row, new_col)), shape=(adata.n_obs, len(union_genes)))
                 X_new = X_new.tocsr()
-                print(X_new.shape)
                 matrix_list.append(X_new)
-                prefix = f"Dataset{i+1}_"
+                prefix = f"d{i+1}_"
                 prefixed_names = np.array([prefix + str(name) for name in adata.obs_names])
                 sample_names_list.append(prefixed_names)
                 
             combined_matrix = sp.vstack(matrix_list)
-            print(combined_matrix.shape)
             combined_sample_names = np.concatenate(sample_names_list)
             
-            # 过滤基因：保留在合并矩阵中至少在10个细胞中有表达的基因
+            # Filter genes: keep only those genes that are expressed in at least 10 cells in the combined matrix
             gene_expression_counts = np.array((combined_matrix != 0).sum(axis=0)).flatten()
             mask = gene_expression_counts >= 10
             filtered_genes = np.array(union_genes)[mask]
@@ -286,7 +292,7 @@ class create_ggm_multi:
             return filtered_matrix, filtered_genes, combined_sample_names
         
         else:
-            raise ValueError("genes_used should be either 'intersection' or 'union'.")
+            raise ValueError("method should be either 'intersection' or 'union'.")
 
 
     def _initialize_variables(self, x):

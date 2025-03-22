@@ -54,112 +54,228 @@ for adata in adata_list:
     print('------------------')
 
 # %%
+adata_list
 
 # %%
+# 使用交集基因
 start_time = time.time()
-ggm_gpu_32 = sg.create_ggm_multi(adata_list,  
-                                genes_used="union",
+ggm_mulit_intersection = sg.create_ggm_multi(adata_list,  
+                                method='intersection',
                                 #round_num=500,
                                 #selected_num=200,  
-                                #target_sampling_count=200,
-                                project_name = "mouse_brain_mulit", 
+                                #target_sampling_time=200,
+                                project_name = "mouse_brain_mulit_intersection", 
                                 cut_off_pcor=0.03,
                                 run_mode=2, 
                                 double_precision=False,
                                 use_chunking=True,
                                 chunk_size=5000,
                                 stop_threshold=0,
-                                FDR_control=False,
-                                FDR_threshold=0.05,
-                                auto_adjust=False
+                                FDR_control=True,
+                                FDR_threshold=0.01,
+                                auto_adjust=True
                                 )
 
-SigEdges_gpu_32 = ggm_gpu_32.SigEdges
+SigEdges_mulit_intersection = ggm_mulit_intersection.SigEdges
 print(f"Time: {time.time() - start_time:.5f} s")
 
 # %%
-ggm_gpu_32
-
-# %%
-sg.save_ggm(ggm_gpu_32, "data/ggm_gpu_32.h5")
-del ggm_gpu_32
+sg.save_ggm(ggm_mulit_intersection, "data/ggm_mulit_intersection.h5")
+del ggm_mulit_intersection
 gc.collect()
-ggm_gpu_32 = sg.load_ggm("data/ggm_gpu_32.h5")
-ggm_gpu_32
+ggm_mulit_intersection = sg.load_ggm("data/ggm_mulit_intersection.h5")
+ggm_mulit_intersection
 
 # %%
 start_time = time.time()
-ggm_gpu_32.fdr_control()
+ggm_mulit_intersection.fdr_control()
 print(f"Time: {time.time() - start_time:.5f} s")
 
 # %%
-sg.save_ggm(ggm_gpu_32, "data/ggm_gpu_32.h5")
-del ggm_gpu_32
+sg.save_ggm(ggm_mulit_intersection, "data/ggm_mulit_intersection.h5")
+del ggm_mulit_intersection
 gc.collect()
-ggm_gpu_32 = sg.load_ggm("data/ggm_gpu_32.h5")
-ggm_gpu_32
+ggm_mulit_intersection = sg.load_ggm("data/ggm_mulit_intersection.h5")
+ggm_mulit_intersection
 
 # %%
-print(ggm_gpu_32.fdr.summary[ggm_gpu_32.fdr.summary['FDR'] <= 0.05])
+print(ggm_mulit_intersection.fdr.summary[ggm_mulit_intersection.fdr.summary['FDR'] <= 0.01])
 
 # %%
-ggm_gpu_32.adjust_cutoff(pcor_threshold=0.059)
+ggm_mulit_intersection.adjust_cutoff(pcor_threshold=0.033)
 
 # %%
-ggm_gpu_32.find_modules(methods='mcl-hub',
+ggm_mulit_intersection.find_modules(methods='mcl-hub',
                         expansion=2, inflation=2, max_iter=1000, tol=1e-6, pruning_threshold=1e-5,
                         min_module_size=10, topology_filtering=True, 
                         convert_to_symbols=True, species='mouse')
-print(ggm_gpu_32.modules_summary)
+print(ggm_mulit_intersection.modules_summary)
 
 # %%
-ggm_gpu_32.modules
+ggm_mulit_intersection.modules
+
 # %%
-sg.save_ggm(ggm_gpu_32, "data/ggm_gpu_32.h5")
-del ggm_gpu_32
+sg.save_ggm(ggm_mulit_intersection, "data/ggm_mulit_intersection.h5")
+del ggm_mulit_intersection
 gc.collect()
-ggm_gpu_32 = sg.load_ggm("data/ggm_gpu_32.h5")
-ggm_gpu_32
+ggm_mulit_intersection = sg.load_ggm("data/ggm_mulit_intersection.h5")
+ggm_mulit_intersection
 
 # %%
-ggm_gpu_32.go_enrichment_analysis(species='mouse',padjust_method="BH",pvalue_cutoff=0.05)
+ggm_mulit_intersection.go_enrichment_analysis(species='mouse',padjust_method="BH",pvalue_cutoff=0.05)
 
 # %%
-ggm_gpu_32.go_enrichment
+ggm_mulit_intersection.go_enrichment
 
 # %%
-sg.save_ggm(ggm_gpu_32, "data/ggm_gpu_32.h5")
-del ggm_gpu_32
+sg.save_ggm(ggm_mulit_intersection, "data/ggm_mulit_intersection.h5")
+del ggm_mulit_intersection
 gc.collect()
-ggm_gpu_32 = sg.load_ggm("data/ggm_gpu_32.h5")
-ggm_gpu_32
+ggm_mulit_intersection = sg.load_ggm("data/ggm_mulit_intersection.h5")
+ggm_mulit_intersection
 
 # %%
-ggm_gpu_32.mp_enrichment_analysis(species='mouse',padjust_method="BH",pvalue_cutoff=0.05)
+ggm_mulit_intersection.mp_enrichment_analysis(species='mouse',padjust_method="BH",pvalue_cutoff=0.05)
 
 # %%
-ggm_gpu_32.mp_enrichment
+ggm_mulit_intersection.mp_enrichment
 
 # %%
-sg.save_ggm(ggm_gpu_32, "data/ggm_gpu_32.h5")
-del ggm_gpu_32
+sg.save_ggm(ggm_mulit_intersection, "data/ggm_mulit_intersection.h5")
+del ggm_mulit_intersection
 gc.collect()
-ggm_gpu_32 = sg.load_ggm("data/ggm_gpu_32.h5")
-ggm_gpu_32
+ggm_mulit_intersection = sg.load_ggm("data/ggm_mulit_intersection.h5")
+ggm_mulit_intersection
 
 
 # %%
-M1_edges = ggm_gpu_32.get_module_edges("M01")
-M1_anno = ggm_gpu_32.get_module_anno("M01", add_enrich_info=True, top_n=5)
+M1_edges = ggm_mulit_intersection.get_module_edges("M001")
+M1_anno = ggm_mulit_intersection.get_module_anno("M001", add_enrich_info=True, top_n=5)
 
 # %%
-M1_edges = sg.get_module_edges(ggm_gpu_32, "M01")
-M1_anno = sg.get_module_anno(ggm_gpu_32, "M01", add_enrich_info=True, top_n=5)
+M1_edges = sg.get_module_edges(ggm_mulit_intersection, "M001")
+M1_anno = sg.get_module_anno(ggm_mulit_intersection, "M001", add_enrich_info=True, top_n=5)
 
 
 # %%
-sg.save_ggm(ggm_gpu_32, "data/ggm_gpu_32.h5")
-del ggm_gpu_32
+sg.save_ggm(ggm_mulit_intersection, "data/ggm_mulit_intersection.h5")
+del ggm_mulit_intersection
 gc.collect()
-ggm_gpu_32 = sg.load_ggm("data/ggm_gpu_32.h5")
-ggm_gpu_32
+ggm_mulit_intersection = sg.load_ggm("data/ggm_mulit_intersection.h5")
+ggm_mulit_intersection
+
+# %%
+
+
+
+
+# %%
+# 使用全部基因
+start_time = time.time()
+ggm_mulit_union = sg.create_ggm_multi(adata_list,  
+                                method="union",
+                                #round_num=500,
+                                #selected_num=200,  
+                                #target_sampling_time=200,
+                                project_name = "mouse_brain_mulit_union", 
+                                cut_off_pcor=0.03,
+                                run_mode=2, 
+                                double_precision=False,
+                                use_chunking=True,
+                                chunk_size=5000,
+                                stop_threshold=0,
+                                FDR_control=True,
+                                FDR_threshold=0.01,
+                                auto_adjust=True
+                                )
+
+SigEdges_gpu_32 = ggm_mulit_union.SigEdges
+print(f"Time: {time.time() - start_time:.5f} s")
+
+# %%
+sg.save_ggm(ggm_mulit_union, "data/ggm_mulit_union.h5")
+del ggm_mulit_union
+gc.collect()
+ggm_mulit_union = sg.load_ggm("data/ggm_mulit_union.h5")
+ggm_mulit_union
+
+
+# %%
+start_time = time.time()
+ggm_mulit_union.fdr_control()
+print(f"Time: {time.time() - start_time:.5f} s")
+
+# %%
+sg.save_ggm(ggm_mulit_union, "data/ggm_mulit_union.h5")
+del ggm_mulit_union
+gc.collect()
+ggm_mulit_union = sg.load_ggm("data/ggm_mulit_union.h5")
+ggm_mulit_union
+
+# %%
+print(ggm_mulit_union.fdr.summary[ggm_mulit_union.fdr.summary['FDR'] <= 0.01])
+
+# %%
+ggm_mulit_union.adjust_cutoff(pcor_threshold=0.033)
+
+# %%
+ggm_mulit_union.find_modules(methods='mcl-hub',
+                        expansion=2, inflation=2, max_iter=1000, tol=1e-6, pruning_threshold=1e-5,
+                        min_module_size=10, topology_filtering=True, 
+                        convert_to_symbols=True, species='mouse')
+print(ggm_mulit_union.modules_summary)
+
+# %%
+ggm_mulit_union.modules
+
+# %%
+sg.save_ggm(ggm_mulit_union, "data/ggm_mulit_union.h5")
+del ggm_mulit_union
+gc.collect()
+ggm_mulit_union = sg.load_ggm("data/ggm_mulit_union.h5")
+ggm_mulit_union
+
+# %%
+ggm_mulit_union.go_enrichment_analysis(species='mouse',padjust_method="BH",pvalue_cutoff=0.05)
+
+# %%
+ggm_mulit_union.go_enrichment
+
+# %%
+sg.save_ggm(ggm_mulit_union, "data/ggm_mulit_union.h5")
+del ggm_mulit_union
+gc.collect()
+ggm_mulit_union = sg.load_ggm("data/ggm_mulit_union.h5")
+ggm_mulit_union
+
+# %%
+ggm_mulit_union.mp_enrichment_analysis(species='mouse',padjust_method="BH",pvalue_cutoff=0.05)
+
+# %%
+ggm_mulit_union.mp_enrichment
+
+# %%
+sg.save_ggm(ggm_mulit_union, "data/ggm_mulit_union.h5")
+del ggm_mulit_union
+gc.collect()
+ggm_mulit_union = sg.load_ggm("data/ggm_mulit_union.h5")
+ggm_mulit_union
+
+
+# %%
+M1_edges = ggm_mulit_union.get_module_edges("M001")
+M1_anno = ggm_mulit_union.get_module_anno("M001", add_enrich_info=True, top_n=5)
+
+# %%
+M1_edges = sg.get_module_edges(ggm_mulit_union, "M001")
+M1_anno = sg.get_module_anno(ggm_mulit_union, "M001", add_enrich_info=True, top_n=5)
+
+
+# %%
+sg.save_ggm(ggm_mulit_union, "data/ggm_mulit_union.h5")
+del ggm_mulit_union
+gc.collect()
+ggm_mulit_union = sg.load_ggm("data/ggm_mulit_union.h5")
+ggm_mulit_union
+
+# %%

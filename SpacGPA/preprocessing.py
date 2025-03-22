@@ -1,17 +1,17 @@
 
-
 import numpy as np
 import scipy.sparse as sp
 import gc
 
 # remove_duplicate_genes
-def remove_duplicate_genes(adata, tol=1e-8):
+def detect_duplicated_genes(adata, tol=1e-8, remove=False):
     """
-    Remove duplicate genes (linearly dependent columns) from an AnnData object by comparing normalized nonzero patterns.
+    Detect duplicate genes (linearly dependent columns) from an AnnData object by comparing normalized nonzero patterns.
     
     Parameters:
         adata (AnnData): an AnnData object with expression data in .X and gene names in .var_names.
         tol (float): tolerance for numerical comparison (default 1e-8).
+        remove (bool): whether to remove duplicate genes (default False).
 
     Returns:
         AnnData: a new AnnData object with duplicate genes removed.
@@ -26,8 +26,11 @@ def remove_duplicate_genes(adata, tol=1e-8):
         x_csc = sp.csc_matrix(np.asarray(x_matrix))
     elif isinstance(x_matrix, np.ndarray):
         x_csc = sp.csc_matrix(x_matrix)
-    else :
+    elif sp.issparse(x_matrix):
         x_csc = x_matrix.tocsc()
+    else:
+        x_type = type(x_matrix)
+        raise ValueError(f"This type of matrix |{x_type}| is not supported for run create_ggm.\nPlease convert to numpy.ndarray or scipy.sparse.csc_matrix.")
     
     del x_matrix
     gc.collect()
@@ -58,8 +61,12 @@ def remove_duplicate_genes(adata, tol=1e-8):
             seen[key] = j
             keep_cols.append(j)
         else:
-            print(f"Remove Gene {var_names[j]} due to duplication with Gene {var_names[seen[key]]}")
+            print(f"Gene {var_names[j]} is duplicated with Gene {var_names[seen[key]]}")
     
-    adata_new = adata[:, keep_cols].copy()
+    if remove:
+        adata_new = adata[:, keep_cols].copy()
+        return adata_new
+    else:
+        return adata
 
-    return adata_new
+# remove_zero_in_csr
