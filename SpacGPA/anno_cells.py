@@ -29,18 +29,18 @@ def calculate_module_expression(adata, ggm_obj, top_genes=30, weighted=True):
             raise ValueError("No modules found in the GGM object. Please run `find_modules` first.")
         module_df = ggm_obj.modules
     
-    print(f"\nCalculating module expression using top {top_genes} genes...")
-    
+
+    print(f"\nCalculating module expression using top {top_genes} genes...\n")
     # 1. Filter out genes with rank larger than top_genes
     module_df = module_df[module_df['rank'] <= top_genes].copy()
 
     # 2. Calculate the weights of each gene in the input module
     if weighted:
-        print("Calculating gene weights based on degree...")
+        print("\nCalculating gene weights based on degree...")
         module_df['weight']  = module_df.groupby('module_id')['degree'].transform( lambda x: x / x.sum() )
         #module_df['weight']  = module_df.groupby('module_id')['degree'].transform( lambda x: x / x.sum() * x.size )
     else:
-        print("Using unweighted gene expression...")
+        print("\nUsing unweighted gene expression...")
         module_df['weight'] = module_df.groupby('module_id')['degree'].transform( lambda x: 1 / x.size ) 
 
     # 3. Filter the input modules to keep only genes that exist in adata
@@ -86,11 +86,16 @@ def calculate_module_expression(adata, ggm_obj, top_genes=30, weighted=True):
 
     # 6. Store the weighted-average-expression in both obsm and obs of the original adata object
     # Store in obsm (as a single matrix)
-    adata.obsm['module_expression'] = weighted_expression
+    scaler = StandardScaler()
+    if 'module_expression' not in adata.obsm:
+        adata.obsm['module_expression'] = weighted_expression
+        adata.obsm['module_expression_scaled'] = scaler.fit_transform(weighted_expression)
+    else:
+        print("Module expression already exists in adata.obsm, overwriting...")
+        adata.obsm['module_expression'] = weighted_expression
+        adata.obsm['module_expression_scaled'] = scaler.fit_transform(weighted_expression)
     
     # Scale the weighted expression
-    scaler = StandardScaler()
-    adata.obsm['module_expression_scaled'] = scaler.fit_transform(weighted_expression)
     
     # Create a DataFrame for the weighted expression
     weighted_expression_df = pd.DataFrame(

@@ -332,7 +332,7 @@ class create_ggm_multi:
         samples_num = self.samples_num
         permutation_num = round(gene_num * permutation_fraction)
         
-        np.random.seed(1)
+        np.random.seed(gene_num * samples_num)
         perm_cols = np.random.choice(gene_num, size=permutation_num, replace=False)
         perm_cols_set = set(perm_cols)
 
@@ -351,25 +351,11 @@ class create_ggm_multi:
 
             # If the column needs to be permuted
             if c in perm_cols_set:
-                # Convert to dense format, keeping non-zero elements
-                dense_col = np.zeros(samples_num, dtype=np.float32)
-                dense_col[row_idx] = col_vals
-
-                # Shuffle using PyTorch, ensuring it's on CPU first
-                dense_col = torch.from_numpy(dense_col).to(device)
-                shuffle_idx = torch.randperm(samples_num, device=device)
-                dense_col = dense_col[shuffle_idx]
-
-                # Update the sparse matrix data and indices
-                new_row_idx = np.nonzero(dense_col.cpu()).squeeze()  # Get non-zero row indices
-                new_col_vals = dense_col.cpu()[new_row_idx]
-
-                # Update gene names
+                # Permute the column and update the gene name
                 new_gene_name[c] = 'P_' + new_gene_name[c]
-
-                # Restore shuffled data back to the sparse matrix
-                permutation_x.data[c_start:c_end] = new_col_vals
-                permutation_x.indices[c_start:c_end] = new_row_idx
+                permutation_x.data[c_start:c_end] = np.random.choice(col_vals, size=len(row_idx), replace=False)
+                permutation_x.indices[c_start:c_end] = np.random.choice(samples_num, size=len(row_idx), replace=False)
+                permutation_x.indices[c_start:c_end] = np.sort(permutation_x.indices[c_start:c_end])
 
         # Convert back to CSR format
         permutation_x_csr = permutation_x.tocsr()

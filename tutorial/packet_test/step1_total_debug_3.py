@@ -31,7 +31,7 @@ import SpacGPA as sg
 
 # %%
 # 读取数据
-adata = sc.read_visium("data/visium/CytAssist_FreshFrozen_Mouse_Brain_Rep2",
+adata = sc.read_visium("/dta/ypxu/ST_GGM/VS_Code/ST_GGM_dev_1/data/visium/CytAssist_FreshFrozen_Mouse_Brain_Rep2",
                        count_file="CytAssist_FreshFrozen_Mouse_Brain_Rep2_filtered_feature_bc_matrix.h5")
 adata.var_names_make_unique()
 
@@ -41,18 +41,26 @@ sc.pp.normalize_total(adata, target_sum=1e4)
 sc.pp.log1p(adata)
 print(adata.X.shape)
 
-# %%
-# 读取 ggm
-ggm = sg.read_ggm("data/ggm.h5")
 
 # %%
-ggm.fdr.sum
+# 读取 ggm
+ggm = sg.load_ggm("data/ggm_gpu_32.h5")
+
+# %%
+# 读取联合分析的ggm
+ggm_mulit_intersection = sg.load_ggm("data/ggm_mulit_intersection.h5")
+ggm_mulit_union = sg.load_ggm("data/ggm_mulit_union.h5")
+
+# %%
+print(ggm)
+print(ggm_mulit_intersection)
+print(ggm_mulit_union)
 
 
 # %%
 # 计算模块的加权表达值
 start_time = time.time()
-sg.calculate_module_expression(adata, ggm, 
+sg.calculate_module_expression(adata, ggm_mulit_intersection, 
                             top_genes=30,
                             weighted=True)
 print(f"Time: {time.time() - start_time:.5f} s")
@@ -82,7 +90,7 @@ sg.smooth_annotations(adata,
                     #module_list=None,
                     #module_list=['M01', 'M02', 'M03', 'M04', 'M05', 'M06', 'M07', 'M08', 'M09', 'M10'],
                     #module_list=['M11', 'M12', 'M13', 'M14', 'M15', 'M16', 'M17', 'M18', 'M19', 'M20'],
-                    #module_list={'M01', 'M02', 'M03', 'M04', 'M05', 'M06', 'M07', 'M08', 'M09', 'M10'},
+                    module_list={'M01', 'M02', 'M03', 'M04', 'M05', 'M06', 'M07', 'M08', 'M09', 'M10'},
                     embedding_key='spatial',
                     k_neighbors=18,
                     min_annotated_neighbors=2
@@ -94,6 +102,7 @@ print(f"Time: {time.time() - start_time:.5f} s")
 start_time = time.time()
 sg.integrate_annotations(adata,
                   #module_list=None,
+                  module_list = adata.uns['module_info']['module_id'].unique(), 
                   #module_list=['M01', 'M02', 'M03', 'M04', 'M05', 'M06', 'M07', 'M08', 'M09', 'M10'],
                   #module_list=['M11', 'M12', 'M13', 'M14', 'M15', 'M16', 'M17', 'M18', 'M19', 'M20'],
                   #module_list={'M01', 'M02', 'M03', 'M04', 'M05', 'M06', 'M07', 'M08', 'M09', 'M10'},
@@ -101,16 +110,19 @@ sg.integrate_annotations(adata,
                   embedding_key='spatial',
                   k_neighbors=18,
                   use_smooth=True,
-                  neighbor_majority_frac=0.90
+                  neighbor_majority_frac=1.1
                   )
 print(f"Time: {time.time() - start_time:.5f} s")
 
+# %%
+adata.uns['module_info']['module_id'].unique()
 
 # %%
 # 合并注释（仅考虑模块注释的细胞数目）
 start_time = time.time()
 sg.integrate_annotations_old(adata,
                          #module_list=None,
+                         module_list = adata.uns['module_info']['module_id'].unique(), 
                          #module_list=['M01', 'M02', 'M03', 'M04', 'M05', 'M06', 'M07', 'M08', 'M09', 'M10'],
                          #module_list=['M11', 'M12', 'M13', 'M14', 'M15', 'M16', 'M17', 'M18', 'M19', 'M20'],
                          #module_list={'M01', 'M02', 'M03', 'M04', 'M05', 'M06', 'M07', 'M08', 'M09', 'M10'},
@@ -231,6 +243,7 @@ c.save()
 # %%
 # 细胞注释相关的问题
 # 问题1，关于计算平均表达值。当使用新的ggm结果注释已经存在module expression的adata时，会报错
+# 添加ggm_id 参数，为GGM指定一个id，用来区分不同的ggm结果。
 
 # %%
 # 问题2，关于计算平均表达值。添加可选参数，计算模块内每个基因的莫兰指数。

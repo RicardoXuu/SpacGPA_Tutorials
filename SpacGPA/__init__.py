@@ -6,7 +6,7 @@ from .enrich_analysis import go_enrichment_analysis, mp_enrichment_analysis, get
 from .module_show import get_module_edges, get_module_anno
 from .anno_cells import calculate_module_expression, calculate_gmm_annotations, smooth_annotations, integrate_annotations, calculate_module_overlap
 from .anno_cells import integrate_annotations_old
-from .preprocessing import remove_duplicate_genes
+from .preprocessing import detect_duplicated_genes, detect_zero_in_csr
 from .save_ggm import save_ggm, load_ggm
 
 __all__ = [
@@ -18,6 +18,6 @@ __all__ = [
     'get_module_edges', 'get_module_anno',
     'calculate_module_expression', 'calculate_gmm_annotations', 'smooth_annotations', 'integrate_annotations', 'calculate_module_overlap',
     'integrate_annotations_old',
-    'remove_duplicate_genes',
+    'detect_duplicated_genes', 'detect_zero_in_csr',
     'save_ggm', 'load_ggm'
 ]

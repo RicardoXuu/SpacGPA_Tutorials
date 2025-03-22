@@ -45,9 +45,9 @@ sc.pp.filter_genes(adata,min_cells=10)
 print(adata.X.shape)
 
 # 设置基因数目
-sc.pp.highly_variable_genes(adata, n_top_genes=5000)
-adata = adata[:, adata.var.highly_variable]
-print(adata.X.shape)
+# sc.pp.highly_variable_genes(adata, n_top_genes=5000)
+# adata = adata[:, adata.var.highly_variable]
+# print(adata.X.shape)
 
 # %%
 start_time = time.time()
@@ -202,20 +202,3 @@ ggm_gpu_32
 # 2， fdr.fdr改为fdr.summary
 # 3， 设计了__repr__函数，用于打印ggm的基本信息
 # 4， 在fdr_control和adjust_cutoff函数中添加了部分打印信息
-
-
-
-
-
-# %%
-adata
-
-# %%
-print(ggm_gpu_32.SigEdges)
-
-
-
-# %%
-print(ggm_gpu_32.modules)
-# %%
-ggm_gpu_32.modules_summary

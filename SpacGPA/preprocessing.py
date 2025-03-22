@@ -3,7 +3,7 @@ import numpy as np
 import scipy.sparse as sp
 import gc
 
-# remove_duplicate_genes
+# detect_duplicated_genes
 def detect_duplicated_genes(adata, tol=1e-8, remove=False):
     """
     Detect duplicate genes (linearly dependent columns) from an AnnData object by comparing normalized nonzero patterns.
@@ -30,7 +30,7 @@ def detect_duplicated_genes(adata, tol=1e-8, remove=False):
         x_csc = x_matrix.tocsc()
     else:
         x_type = type(x_matrix)
-        raise ValueError(f"This type of matrix |{x_type}| is not supported for run create_ggm.\nPlease convert to numpy.ndarray or scipy.sparse.csc_matrix.")
+        raise ValueError(f"This type of matrix |{x_type}| is not supported for run create_ggm.\nPlease convert to numpy.matrix, numpy.ndarray or scipy.sparse.csr_matrix.")
     
     del x_matrix
     gc.collect()
@@ -69,4 +69,30 @@ def detect_duplicated_genes(adata, tol=1e-8, remove=False):
     else:
         return adata
 
-# remove_zero_in_csr
+#  
+def detect_zero_in_csr(adata, remove=False):
+    """
+    Detect unexpected zero in a CSR matrix of an AnnData object.
+    where unexpected zero is defined as zero values in .X.data but have indices in .X.indices.
+    
+    Parameters:
+        adata (AnnData): an AnnData object with expression data in .X, which must be in CSR format.
+        remove (bool): whether to remove unexpected zero  (default False).
+    
+    Returns:
+        AnnData: a new AnnData object with zero values removed.
+    """
+    if adata.X is None:
+        raise ValueError("AnnData object must have X.")
+    if not sp.issparse(adata.X):
+        print("This Function is only for adata.X in CSR format.")
+        return adata
+    else:
+        if np.any(adata.X.data == 0):
+            print("Zero values detected in adata.X.")
+            if remove:
+                adata.X.eliminate_zeros()
+                print("Zero values removed.")
+        else:
+            print("No zero values detected in adata.X.")
+    return adata
