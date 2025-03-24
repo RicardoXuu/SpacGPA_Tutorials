@@ -10,16 +10,83 @@ import itertools
 import warnings
 
 
+# construct_spatial_weights 
+def construct_spatial_weights(coords, k_neighbors=6):
+    """
+    Construct a spatial weights matrix using kNN and 1/d as weights.
+    The resulting W is NOT row-normalized.
+    Diagonal entries are set to 0.
+    
+    Parameters:
+        coords (np.array): Spatial coordinates of cells, shape (N, d).
+        k_neighbors (int): Number of nearest neighbors.
+        
+    Returns:
+        W (scipy.sparse.csr_matrix): Spatial weights matrix of shape (N, N).
+    """
+    N = coords.shape[0]
+    nbrs = NearestNeighbors(n_neighbors=k_neighbors, metric='euclidean').fit(coords)
+    distances, indices_knn = nbrs.kneighbors(coords)
+    
+    # calculate weights
+    with np.errstate(divide='ignore', invalid='ignore'):
+        weights = 1 / distances
+    weights[distances == 0] = 0
+    
+    # construct sparse matrix
+    row_idx = np.repeat(np.arange(N), k_neighbors)
+    col_idx = indices_knn.flatten()
+    data_w = weights.flatten()
+    W = sp.coo_matrix((data_w, (row_idx, col_idx)), shape=(N, N)).tocsr()
+    # set diagonal to zero
+    W.setdiag(0)
+    return W
+
+# compute_moran
+def compute_moran(x, W):
+    """
+    Compute global Moran's I for vector x using the classical formula:
+    
+         I = (N / S0) * (sum_{i,j} w_{ij}(x_i - mean(x)) (x_j - mean(x)) / sum_i (x_i - mean(x))^2)
+    
+    Parameters:
+        x (np.array): 1D expression vector for a gene, shape (N,).
+        W (scipy.sparse.csr_matrix): Spatial weights matrix, shape (N, N), with zero diagonal.
+    
+    Returns:
+        float: Moran's I value, or np.nan if variance is zero.
+    """
+    N = x.shape[0]
+    x_bar = np.mean(x)
+    z = x - x_bar
+    denominator = np.sum(z ** 2)
+    if denominator == 0:
+        return np.nan
+    S0 = W.sum()
+    numerator = z.T.dot(W.dot(z))
+    return (N / S0) * (numerator / denominator)
+
+
 # calculate_module_expression 
-def calculate_module_expression(adata, ggm_obj, top_genes=30, weighted=True):
+def calculate_module_expression(adata, ggm_obj, ggm_key = 'ggm',
+                                top_genes=30, weighted=True,
+                                calculate_moran=False, 
+                                embedding_key='spatial',
+                                k_neighbors=None):
     """
     Calculate and store module expression in adata based on input modules.
 
     Parameters:
         adata: AnnData object containing gene expression data.
         ggm_obj: GGM object containing module information or a DataFrame with columns 'module_id', 'gene', 'degree', and 'rank'.
-        top_genes: Number of top genes to use for module expression calculation.
-        weighted: Whether to calculate weighted average expression based on gene degree.
+        ggm_key: str, key for storing module expression results.
+                 Default 'ggm'. If not 'ggm', all keys will be prefixed with ggm_key.
+        top_genes: int, Number of top genes to use for module expression calculation.
+        weighted: bool, Whether to calculate weighted average expression based on gene degree.
+        calculate_moran: bool, if True, compute global Moran's I for each gene in module_info.
+        embedding_key: str, key in adata.obsm for spatial coordinates. (or other coordinates for SingleCellExperiment)
+        k_neighbors: int, number of nearest neighbors for constructing spatial weights.
+    
 
     """
     if isinstance(ggm_obj, pd.DataFrame):
@@ -30,7 +97,13 @@ def calculate_module_expression(adata, ggm_obj, top_genes=30, weighted=True):
         module_df = ggm_obj.modules
     
 
-    print(f"\nCalculating module expression using top {top_genes} genes...\n")
+    print(f"\nCalculating module expression using top {top_genes} genes...")
+    
+    if 'ggm_keys' not in adata.uns:
+        adata.uns['ggm_keys'] = {}
+    if ggm_key in adata.uns['ggm_keys']:
+        print(f"\n{ggm_key} already exists in adata.uns['ggm_keys']. Overwriting all information about {ggm_key}...")
+    
     # 1. Filter out genes with rank larger than top_genes
     module_df = module_df[module_df['rank'] <= top_genes].copy()
 
@@ -42,27 +115,67 @@ def calculate_module_expression(adata, ggm_obj, top_genes=30, weighted=True):
     else:
         print("\nUsing unweighted gene expression...")
         module_df['weight'] = module_df.groupby('module_id')['degree'].transform( lambda x: 1 / x.size ) 
-
+    
     # 3. Filter the input modules to keep only genes that exist in adata
     genes_in_adata = adata.var_names
     module_df = module_df[module_df['gene'].isin(genes_in_adata)]
     module_df.index = range(module_df.shape[0])
     
-    # Check if module_info already exists in adata.uns
-    if 'module_info' not in adata.uns:
-        print("Storing module information in adata.uns['module_info']...")
-        adata.uns['module_info'] = module_df
+    # 4. Set the keys for storing module information and expression
+    if ggm_key == 'ggm':
+        mod_info_key = 'module_info'
+        expr_key = 'module_expression'
+        expr_scaled_key = 'module_expression_scaled'
+        col_prefix = ''
     else:
-        print("NOTE: module_info already exists in adata.uns, overwriting...")
-        adata.uns['module_info'] = module_df
+        mod_info_key = f"{ggm_key}_module_info"
+        expr_key = f"{ggm_key}_module_expression"
+        expr_scaled_key = f"{ggm_key}_module_expression_scaled"
+        col_prefix = f"{ggm_key}_"
     
-    # 4. Construct a transformation matrix
+    module_df['module_id'] = col_prefix + module_df['module_id'].astype(str)
+
+    # 4. Make a mapping from gene to index in adata and from module ID to index in the transformation matrix
     # Create a mapping from gene to index in adata
     gene_to_index = {gene: i for i, gene in enumerate(adata.var_names)}
     # Create a mapping from module ID to index in the transformation matrix
     module_ids = module_df['module_id'].unique()
     module_to_index = {module: i for i, module in enumerate(module_ids)}
+    
+    # remove all existing module information in adata.obs
+    for col in adata.obs.columns:
+        if col.startswith(f'{col_prefix}M') and col.endswith('_exp'):
+            adata.obs.drop(columns=col, inplace=True)
+        if col.startswith(f'{col_prefix}M') and col.endswith('_anno'):
+            adata.obs.drop(columns=col, inplace=True)
+        if col.startswith(f'{col_prefix}M') and col.endswith('_anno_smooth'):
+            adata.obs.drop(columns=col, inplace=True)
 
+    # 5. Calculate the Moran's I for each gene in module_info
+    if calculate_moran:
+        print("Calculating Moran's I for genes in module_info...")
+        if embedding_key not in adata.obsm:
+            raise ValueError(f"{embedding_key} coordinates not found in adata.obsm.")
+        coords = adata.obsm[embedding_key]
+        W = construct_spatial_weights(coords, k_neighbors=k_neighbors)
+        moran_values = []
+        for gene in module_df['gene']:
+            i = gene_to_index[gene]
+            # Get the expression of the gene
+            if sp.issparse(adata.X):
+                x_gene = adata.X[:, i].toarray().flatten()
+            else:
+                x_gene = adata.X[:, i]
+            I = compute_moran(x_gene, W)
+            moran_values.append(I)
+        module_df['moran_I'] = moran_values
+        print("Moran's I computed for all genes in modules.")
+
+    # 6. Store module information in adata.uns['module_info']
+    print(f"Storing module information in adata.uns['{mod_info_key}']...")
+    adata.uns[mod_info_key] = module_df.copy()
+   
+    # 7. Construct a transformation matrix
     # Initialize the transformation matrix
     n_genes = len(adata.var_names)
     n_modules = len(module_ids)
@@ -77,38 +190,39 @@ def calculate_module_expression(adata, ggm_obj, top_genes=30, weighted=True):
     # Convert to CSR format for efficient multiplication
     transformation_matrix = transformation_matrix.tocsr()
 
-    # 5. Multiply adata by the transformation matrix to obtain the weighted-average-expression matrix
+    # 8. Multiply adata by the transformation matrix to obtain the weighted-average-expression matrix
     weighted_expression = adata.X.dot(transformation_matrix)
 
     # Convert to dense array if necessary
     if sp.issparse(weighted_expression):
         weighted_expression = weighted_expression.toarray()
 
-    # 6. Store the weighted-average-expression in both obsm and obs of the original adata object
+    # 9. Store the weighted-average-expression in both obsm and obs of the original adata object
     # Store in obsm (as a single matrix)
+    # Scale the weighted expression by standard scaling
     scaler = StandardScaler()
-    if 'module_expression' not in adata.obsm:
-        adata.obsm['module_expression'] = weighted_expression
-        adata.obsm['module_expression_scaled'] = scaler.fit_transform(weighted_expression)
-    else:
-        print("Module expression already exists in adata.obsm, overwriting...")
-        adata.obsm['module_expression'] = weighted_expression
-        adata.obsm['module_expression_scaled'] = scaler.fit_transform(weighted_expression)
-    
-    # Scale the weighted expression
+    adata.obsm[expr_key] = weighted_expression
+    adata.obsm[expr_scaled_key] = scaler.fit_transform(weighted_expression)
     
     # Create a DataFrame for the weighted expression
     weighted_expression_df = pd.DataFrame(
         weighted_expression,
         index=adata.obs_names,
-        columns=[f'{module}_exp' for module in module_ids]
+        columns=[f'{mod}_exp' for mod in module_ids]
     )
-    
+
     # Store in obs (one column per module)
     obs_df = pd.concat([adata.obs, weighted_expression_df], axis=1)
     obs_df = obs_df.loc[:, ~obs_df.columns.duplicated(keep='last')]
     adata.obs = obs_df.copy()
     
+    # Store the keys info in adata.uns['ggm_keys']
+    adata.uns['ggm_keys'][ggm_key] = {
+        'module_info': mod_info_key,
+        'module_expression': expr_key,
+        'module_expression_scaled': expr_scaled_key,
+        'module_obs_prefix': col_prefix
+    }
     print(f"\nTotal {n_modules} modules' average expression calculated and stored in adata.obs and adata.obsm")
 
 

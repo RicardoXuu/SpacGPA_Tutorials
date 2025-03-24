@@ -34,9 +34,7 @@ import SpacGPA as sg
 adata = sc.read_visium("/dta/ypxu/ST_GGM/VS_Code/ST_GGM_dev_1/data/visium/CytAssist_FreshFrozen_Mouse_Brain_Rep2",
                        count_file="CytAssist_FreshFrozen_Mouse_Brain_Rep2_filtered_feature_bc_matrix.h5")
 adata.var_names_make_unique()
-
 adata.var_names = adata.var['gene_ids']
-
 sc.pp.normalize_total(adata, target_sum=1e4)
 sc.pp.log1p(adata)
 print(adata.X.shape)
@@ -44,27 +42,74 @@ print(adata.X.shape)
 
 # %%
 # 读取 ggm
+start_time = time.time()
 ggm = sg.load_ggm("data/ggm_gpu_32.h5")
-
-# %%
+print(f"Read ggm: {time.time() - start_time:.5f} s")
 # 读取联合分析的ggm
 ggm_mulit_intersection = sg.load_ggm("data/ggm_mulit_intersection.h5")
+print(f"Read ggm_mulit_intersection: {time.time() - start_time:.5f} s")
 ggm_mulit_union = sg.load_ggm("data/ggm_mulit_union.h5")
-
-# %%
+print(f"Read ggm_mulit_union: {time.time() - start_time:.5f} s")
+print("=====================================")
 print(ggm)
+print("=====================================")
 print(ggm_mulit_intersection)
+print("=====================================")
 print(ggm_mulit_union)
 
+# %%
+adata
 
 # %%
 # 计算模块的加权表达值
 start_time = time.time()
-sg.calculate_module_expression(adata, ggm_mulit_intersection, 
-                            top_genes=30,
-                            weighted=True)
-print(f"Time: {time.time() - start_time:.5f} s")
-print(adata.uns['module_info'])
+sg.calculate_module_expression(adata, 
+                               ggm_obj=ggm, 
+                               top_genes=30,
+                               weighted=True,
+                               calculate_moran=True,
+                               embedding_key='spatial',
+                               k_neighbors=6)  
+print(f"Time1: {time.time() - start_time:.5f} s")
+
+sg.calculate_module_expression(adata, 
+                               ggm_obj=ggm_mulit_intersection, 
+                               ggm_key='intersection',
+                               top_genes=30,
+                               weighted=True,
+                               calculate_moran=True,
+                               embedding_key='spatial',
+                               k_neighbors=6)  
+print(f"Time2: {time.time() - start_time:.5f} s")
+
+sg.calculate_module_expression(adata, 
+                               ggm_obj=ggm_mulit_union, 
+                               ggm_key='union',
+                               top_genes=30,
+                               weighted=True,
+                               calculate_moran=True,
+                               embedding_key='spatial',
+                               k_neighbors=6)  
+print(f"Time3 {time.time() - start_time:.5f} s")
+
+# %%
+adata.obs.head()
+
+# %%
+adata.uns['module_info']
+
+# %%
+adata.uns['union_module_info']
+
+# %%
+adata.uns['intersection_module_info']
+
+# %%
+adata.uns['module_info']['moran_I'].describe()
+
+# %%
+print(adata.uns['module_info'][adata.uns['module_info']['moran_I'] > 0.8])
+
 
 # %%
 # 计算GMM注释
@@ -102,7 +147,7 @@ print(f"Time: {time.time() - start_time:.5f} s")
 start_time = time.time()
 sg.integrate_annotations(adata,
                   #module_list=None,
-                  module_list = adata.uns['module_info']['module_id'].unique(), 
+                  #module_list = adata.uns['module_info']['module_id'].unique(), 
                   #module_list=['M01', 'M02', 'M03', 'M04', 'M05', 'M06', 'M07', 'M08', 'M09', 'M10'],
                   #module_list=['M11', 'M12', 'M13', 'M14', 'M15', 'M16', 'M17', 'M18', 'M19', 'M20'],
                   #module_list={'M01', 'M02', 'M03', 'M04', 'M05', 'M06', 'M07', 'M08', 'M09', 'M10'},
@@ -141,24 +186,67 @@ print(f"Time: {time.time() - start_time:.5f} s")
 print(overlap_records[overlap_records['module_a'] == 'M01'])
 
 # %%
-# 保存注释结果
-adata.obs.loc[:,['annotation','annotation_old']].to_csv("data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.annotation.csv")
-
-# %%
 # 注释结果可视化
 sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "", frameon = False, color="annotation_old", show=True)
 
 # %%
 sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "", frameon = False, color="annotation", show=True)
 
-# %%
-# 保存可视化结果
-sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "", frameon = False, color="annotation_old", 
-              save="/CytAssist_FreshFrozen_Mouse_Brain_Rep2_All_modules_anno_old.pdf",show=False)
 
 # %%
-sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "", frameon = False, color="annotation", 
-              save="/CytAssist_FreshFrozen_Mouse_Brain_Rep2_All_modules_anno.pdf",show=False)
+# 细胞注释相关的问题
+# 问题1，关于计算平均表达值。当使用新的ggm结果注释已经存在module expression的adata时，会报错
+# 添加ggm_key 参数，为GGM指定一个key，用来区分不同的ggm结果。
+# 解决
+
+# %%
+# 问题2，关于计算平均表达值。添加可选参数，计算模块内每个基因的莫兰指数。
+# 解决
+
+# %%
+# 问题3，关于模块注释的全部函数，添加反选参数，用来反向排除模块。
+
+# %%
+# 问题4，关于模块注释的全部函数, 细胞按模块的注释结果改为category类型。而不是现在的0，1，int类型。并注意，之后在涉及到使用这些数据的时候还要换回int类型。
+
+# %%
+# 问题5，关于高斯混合分布，设计activity模块的排除标准。尽量不使用先验知识，
+
+# %%
+# 问题6，关于高斯混合分布，阈值和主成分数目的关系优化。
+
+# %%
+# 问题7，关于高斯混合分布，除了使用高斯混合分布，也考虑表达值的排序。
+#       对于一个模块，只有那些表达水平大于模块最大表达水平（或者为了防止一些离散的点，可以考虑前20个或者30个细胞的平均值作为模块最大表达水平）的一定比例的细胞才被认为是注释为该模块的
+
+# %%
+# 问题8，关于平滑处理，在使用的时候，无法仅处理部分模块。
+
+# %%
+# 问题9，关于合并注释，优化keep modules的参数。
+
+# %%
+# 问题10，关于合并注释，尝试引入模块的整体莫兰指数，来评估模块的空间分布。如果一个模块的莫兰指数很高，则优先考虑该模块的细胞的可信度。
+
+# %%
+# 问题11，关于合并注释，尝试结合louvain或者leiden的聚类结果，在每个聚类之内使用模块来精准注释。
+
+# %%
+# 问题12，关于合并注释，注释结果中，字符串None改为空值的None。
+
+# %%
+# 问题13，关于合并注释，在adata的uns中添加一个配色方案，为每个模块指定配色，特别是模块过多的时候。
+
+# %%
+# 问题14，关于合并注释，neighbor_majority_frac参数似乎会导致activity模块的权重过高。考虑将其设置为大于1的值。
+
+
+
+
+
+
+
+
 
 
 # %%
@@ -236,51 +324,3 @@ c.save()
 
 
 
-
-
-
-
-# %%
-# 细胞注释相关的问题
-# 问题1，关于计算平均表达值。当使用新的ggm结果注释已经存在module expression的adata时，会报错
-# 添加ggm_id 参数，为GGM指定一个id，用来区分不同的ggm结果。
-
-# %%
-# 问题2，关于计算平均表达值。添加可选参数，计算模块内每个基因的莫兰指数。
-
-# %%
-# 问题3，关于模块注释的全部函数，添加反选参数，用来反向排除模块。
-
-# %%
-# 问题4，关于模块注释的全部函数, 细胞按模块的注释结果改为category类型。而不是现在的0，1，int类型。并注意，之后在涉及到使用这些数据的时候还要换回int类型。
-
-# %%
-# 问题5，关于高斯混合分布，设计activity模块的排除标准。尽量不使用先验知识，
-
-# %%
-# 问题6，关于高斯混合分布，阈值和主成分数目的关系优化。
-
-# %%
-# 问题7，关于高斯混合分布，除了使用高斯混合分布，也考虑表达值的排序。
-#       对于一个模块，只有那些表达水平大于模块最大表达水平（或者为了防止一些离散的点，可以考虑前20个或者30个细胞的平均值作为模块最大表达水平）的一定比例的细胞才被认为是注释为该模块的
-
-# %%
-# 问题8，关于平滑处理，在使用的时候，无法仅处理部分模块。
-
-# %%
-# 问题9，关于合并注释，优化keep modules的参数。
-
-# %%
-# 问题10，关于合并注释，尝试引入模块的整体莫兰指数，来评估模块的空间分布。如果一个模块的莫兰指数很高，则优先考虑该模块的细胞的可信度。
-
-# %%
-# 问题11，关于合并注释，尝试结合louvain或者leiden的聚类结果，在每个聚类之内使用模块来精准注释。
-
-# %%
-# 问题12，关于合并注释，注释结果中，字符串None改为空值的None。
-
-# %%
-# 问题13，关于合并注释，在adata的uns中添加一个配色方案，为每个模块指定配色，特别是模块过多的时候。
-
-# %%
-# 问题14，关于合并注释，neighbor_majority_frac参数似乎会导致activity模块的权重过高。考虑将其设置为大于1的值。
