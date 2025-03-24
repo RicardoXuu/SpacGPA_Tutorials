@@ -68,24 +68,23 @@ def compute_moran(x, W):
 
 
 # calculate_module_expression 
-def calculate_module_expression(adata, ggm_obj, ggm_key = 'ggm',
+def calculate_module_expression(adata, 
+                                ggm_obj, ggm_key = 'ggm',
                                 top_genes=30, weighted=True,
-                                calculate_moran=False, 
-                                embedding_key='spatial',
-                                k_neighbors=None):
+                                calculate_moran=False, embedding_key='spatial',k_neighbors=None):
     """
     Calculate and store module expression in adata based on input modules.
 
     Parameters:
         adata: AnnData object containing gene expression data.
         ggm_obj: GGM object containing module information or a DataFrame with columns 'module_id', 'gene', 'degree', and 'rank'.
-        ggm_key: str, key for storing module expression results.
-                 Default 'ggm'. If not 'ggm', all keys will be prefixed with ggm_key.
+        ggm_key: str, key for storing all information about the GGM object in adata.
+                 Default 'ggm'. If not 'ggm', all information will be prefixed with ggm_key.
         top_genes: int, Number of top genes to use for module expression calculation.
         weighted: bool, Whether to calculate weighted average expression based on gene degree.
         calculate_moran: bool, if True, compute global Moran's I for each gene in module_info.
         embedding_key: str, key in adata.obsm for spatial coordinates. (or other coordinates for SingleCellExperiment)
-        k_neighbors: int, number of nearest neighbors for constructing spatial weights.
+        k_neighbors: int, number of nearest neighbors for constructing spatial weights.(or other coordinates for SingleCellExperiment)
     
 
     """
@@ -96,7 +95,9 @@ def calculate_module_expression(adata, ggm_obj, ggm_key = 'ggm',
             raise ValueError("No modules found in the GGM object. Please run `find_modules` first.")
         module_df = ggm_obj.modules
     
-
+    if calculate_moran and embedding_key not in adata.obsm:
+        raise ValueError(f"{embedding_key} coordinates not found in adata.obsm.")
+     
     print(f"\nCalculating module expression using top {top_genes} genes...")
     
     if 'ggm_keys' not in adata.uns:
@@ -124,18 +125,20 @@ def calculate_module_expression(adata, ggm_obj, ggm_key = 'ggm',
     # 4. Set the keys for storing module information and expression
     if ggm_key == 'ggm':
         mod_info_key = 'module_info'
+        mod_stats_key = 'module_stats'
         expr_key = 'module_expression'
         expr_scaled_key = 'module_expression_scaled'
         col_prefix = ''
     else:
         mod_info_key = f"{ggm_key}_module_info"
+        mod_stats_key = f"{ggm_key}_module_stats"
         expr_key = f"{ggm_key}_module_expression"
         expr_scaled_key = f"{ggm_key}_module_expression_scaled"
         col_prefix = f"{ggm_key}_"
     
     module_df['module_id'] = col_prefix + module_df['module_id'].astype(str)
 
-    # 4. Make a mapping from gene to index in adata and from module ID to index in the transformation matrix
+    # 5. Make a mapping from gene to index in adata and from module ID to index in the transformation matrix
     # Create a mapping from gene to index in adata
     gene_to_index = {gene: i for i, gene in enumerate(adata.var_names)}
     # Create a mapping from module ID to index in the transformation matrix
@@ -151,31 +154,8 @@ def calculate_module_expression(adata, ggm_obj, ggm_key = 'ggm',
         if col.startswith(f'{col_prefix}M') and col.endswith('_anno_smooth'):
             adata.obs.drop(columns=col, inplace=True)
 
-    # 5. Calculate the Moran's I for each gene in module_info
-    if calculate_moran:
-        print("Calculating Moran's I for genes in module_info...")
-        if embedding_key not in adata.obsm:
-            raise ValueError(f"{embedding_key} coordinates not found in adata.obsm.")
-        coords = adata.obsm[embedding_key]
-        W = construct_spatial_weights(coords, k_neighbors=k_neighbors)
-        moran_values = []
-        for gene in module_df['gene']:
-            i = gene_to_index[gene]
-            # Get the expression of the gene
-            if sp.issparse(adata.X):
-                x_gene = adata.X[:, i].toarray().flatten()
-            else:
-                x_gene = adata.X[:, i]
-            I = compute_moran(x_gene, W)
-            moran_values.append(I)
-        module_df['moran_I'] = moran_values
-        print("Moran's I computed for all genes in modules.")
-
-    # 6. Store module information in adata.uns['module_info']
-    print(f"Storing module information in adata.uns['{mod_info_key}']...")
-    adata.uns[mod_info_key] = module_df.copy()
-   
-    # 7. Construct a transformation matrix
+    
+    # 6. Construct a transformation matrix
     # Initialize the transformation matrix
     n_genes = len(adata.var_names)
     n_modules = len(module_ids)
@@ -190,13 +170,45 @@ def calculate_module_expression(adata, ggm_obj, ggm_key = 'ggm',
     # Convert to CSR format for efficient multiplication
     transformation_matrix = transformation_matrix.tocsr()
 
-    # 8. Multiply adata by the transformation matrix to obtain the weighted-average-expression matrix
+    # 7. Multiply adata by the transformation matrix to obtain the weighted-average-expression matrix
     weighted_expression = adata.X.dot(transformation_matrix)
 
     # Convert to dense array if necessary
     if sp.issparse(weighted_expression):
         weighted_expression = weighted_expression.toarray()
+    
+    # 8. Calculate the Moran's I for each gene in module_info
+    if calculate_moran:
+        coords = adata.obsm[embedding_key]
+        W = construct_spatial_weights(coords, k_neighbors=k_neighbors)
+        # Calculate Moran's I for each module in module_info
+        print("Calculating Moran's I for modules in ggm...")
+        module_moran = {}
+        for mod in module_ids:
+            # Get the expression of the module
+            mod_expr = weighted_expression[:, module_to_index[mod]]
+            I_mod = compute_moran(mod_expr, W)
+            module_moran[mod] = I_mod
+        # Calculate Moran's I for each gene in module_info
+        print("Calculating Moran's I for genes in ggm...")
+        moran_values = []
+        for gene in module_df['gene']:
+            i = gene_to_index[gene]
+            # Get the expression of the gene
+            if sp.issparse(adata.X):
+                x_gene = adata.X[:, i].toarray().flatten()
+            else:
+                x_gene = adata.X[:, i]
+            I_gene = compute_moran(x_gene, W)
+            moran_values.append(I_gene)
+        # Add the Moran's I values to the module information
+        module_df['module_moran_I'] = module_df['module_id'].map(module_moran)
+        module_df['gene_moran_I'] = moran_values        
 
+    # 9. Store module information in adata.uns['module_info']
+    print(f"Storing module information in adata.uns['{mod_info_key}']...")
+    adata.uns[mod_info_key] = module_df.copy()
+   
     # 9. Store the weighted-average-expression in both obsm and obs of the original adata object
     # Store in obsm (as a single matrix)
     # Scale the weighted expression by standard scaling
@@ -219,6 +231,7 @@ def calculate_module_expression(adata, ggm_obj, ggm_key = 'ggm',
     # Store the keys info in adata.uns['ggm_keys']
     adata.uns['ggm_keys'][ggm_key] = {
         'module_info': mod_info_key,
+        'module_stats': mod_stats_key,
         'module_expression': expr_key,
         'module_expression_scaled': expr_scaled_key,
         'module_obs_prefix': col_prefix
@@ -228,7 +241,9 @@ def calculate_module_expression(adata, ggm_obj, ggm_key = 'ggm',
 
 # calculate_gmm_annotation
 def calculate_gmm_annotations(adata, 
-                              modules_list = None,
+                              ggm_key='ggm',
+                              modules_used = None,
+                              modules_excluded = None,
                               max_iter=200,
                               prob_threshold=0.99,
                               min_samples=10,
@@ -241,7 +256,9 @@ def calculate_gmm_annotations(adata,
     
     Parameters:
       adata: AnnData object.
-      modules_list: List of module IDs.
+      ggm_key: Key for the GGM object in adata.uns['ggm_keys'].
+      modules_used: List of module IDs.(default None)
+      modules_excluded: List of module IDs to exclude.(default None)
       max_iter: Maximum iterations.
       prob_threshold: Probability threshold for high expression.
       min_samples: Minimum valid sample count.
@@ -255,34 +272,45 @@ def calculate_gmm_annotations(adata,
         - uns['module_stats']: Raw statistics records.
     """
     # Input validation
-    if "module_expression" not in adata.obsm:
-        raise ValueError("module_expression not found in adata.obsm")
-    if "module_info" not in adata.uns:
-        raise ValueError("module_info not found in adata.uns")
+    if ggm_key not in adata.uns['ggm_keys']:
+        raise ValueError(f"{ggm_key} not found in adata.uns['ggm_keys']")
+
+    mod_info_key = adata.uns['ggm_keys'][ggm_key]['module_info']
+    expr_key = adata.uns['ggm_keys'][ggm_key]['module_expression']
+    mod_stats_key = adata.uns['ggm_keys'][ggm_key]['module_stats']
+
+    if expr_key not in adata.obsm:
+        raise ValueError(f"{expr_key} not found in adata.obsm")
+    if mod_info_key not in adata.uns:
+        raise ValueError(f"{mod_info_key} not found in adata.uns")
     
-    module_expr_matrix = adata.obsm["module_expression"]
+    module_expr_matrix = adata.obsm[expr_key]
     module_expr_matrix = pd.DataFrame(module_expr_matrix, index=adata.obs.index)
-    if len(adata.uns['module_info']['module_id'].unique()) != module_expr_matrix.shape[1]:
-        raise ValueError("module_info and module_expression dimensions do not match")
+    if len(adata.uns[mod_info_key]['module_id'].unique()) != module_expr_matrix.shape[1]:
+        raise ValueError(f"module_info and module_expression dimensions for the ggm '{ggm_key}' do not match")
     else:
-        module_expr_matrix.columns = adata.uns['module_info']['module_id'].unique()
+        module_expr_matrix.columns = adata.uns[mod_info_key]['module_id'].unique()
 
     # Check module list
-    if modules_list is None:
-        modules_list = adata.uns['module_info']['module_id'].unique()
+    # If modules_used is not provided, use all modules in adata.uns[mod_info_key]
+    if modules_used is None:
+        modules_used = adata.uns[mod_info_key]['module_id'].unique()
+    # Exclude modules if the modules_excluded list is provided
+    if modules_excluded is not None:
+        modules_used = [mid for mid in modules_used if mid not in modules_excluded]
 
-    valid_modules = [mid for mid in modules_list if mid in module_expr_matrix.columns]
+    valid_modules = [mid for mid in modules_used if mid in module_expr_matrix.columns]
     
     if not valid_modules:
-        raise ValueError("Ensure that the input module IDs exist in adata.uns['module_info']")
+        raise ValueError(f"Ensure that the input module IDs exist in adata.uns['{mod_info_key}']")
     
-    existing_columns = [f"{mid}_anno" for mid in modules_list if f"{mid}_anno" in adata.obs]
+    existing_columns = [f"{mid}_anno" for mid in modules_used if f"{mid}_anno" in adata.obs]
     if existing_columns:
         print(f"Removing existing annotation columns: {existing_columns}")
         adata.obs.drop(columns=existing_columns, inplace=True)
 
     # Initialize annotation matrix
-    anno_cols = [f"{mid}" for mid in modules_list]
+    anno_cols = [f"{mid}" for mid in modules_used]
     annotations = pd.DataFrame(
         np.zeros((adata.obs.shape[0], len(anno_cols)), dtype=int),
         index=adata.obs.index,
@@ -438,13 +466,20 @@ def calculate_gmm_annotations(adata,
 
     # Store annotations in adata.obs        
     annotations.columns = [f"{col}_anno" for col in annotations.columns]
+    
+    # Reset the 0/1 anno to module id or None
+    for col in annotations.columns:
+        orig_name = col.replace("_anno", "")
+        annotations[col] = np.where(annotations[col] == 1, orig_name, None)
+        annotations[col] = pd.Categorical(annotations[col])
+
     adata.obs = pd.concat([adata.obs, annotations], axis=1)
     
     # Store statistics in adata.uns
     stats_records_df = pd.DataFrame(stats_records)
     stats_records_df = pd.DataFrame(stats_records)
-    if 'module_stats' in adata.uns:
-        existing_stats = adata.uns['module_stats']
+    if mod_stats_key in adata.uns:
+        existing_stats = adata.uns[mod_stats_key]
         # For each module, update existing records with new data
         for mid in stats_records_df['module_id'].unique():
             new_row = stats_records_df.loc[stats_records_df['module_id'] == mid].iloc[0]
@@ -456,41 +491,60 @@ def calculate_gmm_annotations(adata,
             else:
                 existing_stats = pd.concat([existing_stats, pd.DataFrame([new_row])], ignore_index=True)
         existing_stats.dropna(how='all', inplace=True)
-        adata.uns['module_stats'] = existing_stats
+        adata.uns[mod_stats_key] = existing_stats
     else:
-        adata.uns['module_stats'] = stats_records_df
+        adata.uns[mod_stats_key] = stats_records_df
 
 
 # smooth_annotations
-def smooth_annotations(adata, module_list=None, embedding_key='spatial', k_neighbors=24, min_annotated_neighbors=1):
+def smooth_annotations(adata,
+                       ggm_key='ggm', 
+                       modules_used=None,
+                       modules_excluded=None, 
+                       embedding_key='spatial', k_neighbors=24, min_annotated_neighbors=1):
     """
     Smooth spatial annotations by processing each module's annotation.
     
     Parameters:
       adata (anndata.AnnData): AnnData object containing spatial transcriptomics data.
-      module_list (list): List of modules to smooth; if None, all modules are used.
+      ggm_key (str): Key for the GGM object in adata.uns['ggm_keys'].
+      modules_used (list): List of modules to smooth; if None, all modules are used.(default None)
+      modules_excluded (list): List of modules to exclude from smoothing (default None).
       embedding_key (str): Key in adata.obsm for spatial coordinates (default 'spatial').
       k_neighbors (int): Number of KNN neighbors (default 24); may need adjustment based on technology and cell density.
       min_annotated_neighbors (int): Minimum number of neighbors with annotation 1 required to retain the annotation (default 1).
     """
+    if ggm_key not in adata.uns['ggm_keys']:
+        raise ValueError(f"{ggm_key} not found in adata.uns['ggm_keys']")
+    
+    module_stats_key = adata.uns['ggm_keys'][ggm_key]['module_stats']
+
     # Check input: ensure the embedding key exists in adata.obsm
     if embedding_key not in adata.obsm:
         raise ValueError(f"{embedding_key} not found in adata.obsm. Please ensure the coordinate exists.")
     
-    # If module_list is not provided, get all modules from adata.uns['module_stats']
-    if module_list is None:
-        module_list = adata.uns['module_stats']['module_id'].unique()
-
+    # If modules_used is not provided, get all modules from adata.uns['module_stats']
+    if modules_used is None:
+        modules_used = adata.uns[module_stats_key]['module_id'].unique()
+    # Exclude modules if the modules_excluded list is provided
+    if modules_excluded is not None:
+        modules_used = [mid for mid in modules_used if mid not in modules_excluded]
+                        
     # Remove existing smoothed annotation columns if they exist
-    existing_columns = [f"{mid}_anno_smooth" for mid in module_list if f"{mid}_anno_smooth" in adata.obs]
+    existing_columns = [f"{mid}_anno_smooth" for mid in modules_used if f"{mid}_anno_smooth" in adata.obs]
     if existing_columns:
         print(f"Removing existing smooth annotation columns: {existing_columns}")
         adata.obs.drop(columns=existing_columns, inplace=True)
 
     # Extract spatial coordinates and the annotation columns to be smoothed
     embedding_coords = adata.obsm[embedding_key]
-    module_annotations = adata.obs.loc[:, [f"{mid}_anno" for mid in module_list]]
-    n_cells, _ = module_annotations.shape
+    module_annotations = adata.obs.loc[:, [f"{mid}_anno" for mid in modules_used]]
+    # Reset the module id anno to 0/1 anno
+    for col in module_annotations.columns:
+        orig_name = col.replace("_anno", "")
+        module_annotations[col] = (module_annotations[col] == orig_name).astype(int)
+
+        n_cells, _ = module_annotations.shape
 
     # Compute KNN neighbors based on the embedding coordinates
     print(f"\nCalculating {k_neighbors} nearest neighbors for each cell based on {embedding_key} embedding...\n")
@@ -520,6 +574,11 @@ def smooth_annotations(adata, module_list=None, embedding_key='spatial', k_neigh
     smooth_annotations = pd.DataFrame(smooth_annotations,
                                       index=adata.obs_names,
                                       columns=[f"{mid}_smooth" for mid in module_annotations.columns])
+    # Reset the 0/1 anno to module id or None
+    for col in smooth_annotations.columns:
+        orig_name = col.replace("_anno_smooth", "")
+        smooth_annotations[col] = np.where(smooth_annotations[col] == 1, orig_name, None)
+        smooth_annotations[col] = pd.Categorical(smooth_annotations[col])
     adata.obs = pd.concat([adata.obs, smooth_annotations], axis=1)
 
     print("\nAnnotation smoothing completed. Results stored in adata.obs.\n")
@@ -527,26 +586,32 @@ def smooth_annotations(adata, module_list=None, embedding_key='spatial', k_neigh
 
 # integrate_annotations
 def integrate_annotations(adata,
-                          module_list=None,
+                          ggm_key='ggm',
+                          cross_ggm = False,
+                          modules_used=None,
+                          modules_excluded=None,
                           keep_modules=None,
                           result_anno='annotation',
                           embedding_key='spatial',
                           k_neighbors=24,
                           use_smooth=True,
                           neighbor_majority_frac=0.90
-                          ):
-                      
+                          ):            
     """
     Integrate cell annotations from multiple programs using the following logic:
       1) Optionally use smoothed annotations (controlled by use_smooth);
       2) Automatically compute k_neighbors nearest neighbors;
       3) If a cell is annotated by multiple programs:
-         3.1 If >= neighbor_majority_frac (adjustable) of its neighbors belong to one program, select that program;
+         3.1 If > neighbor_majority_frac (adjustable) of its neighbors belong to one program, select that program;
          3.2 Otherwise, decide based on expression scores, the higher the value, the higher the priority.
     
     Parameters:
       adata (anndata.AnnData): AnnData object containing module annotations.
-      module_list (list): List of modules to integrate; if None, all modules are used.
+      ggm_key (str): Key for the GGM object in adata.uns['ggm_keys'].
+      cross_ggm (bool): Whether to integrate annotations from multiple GGMs (default False).
+                        When True, modules_used must be provided manually.
+      modules_used (list): List of modules to integrate; if None, all modules of the GGM mentioned in ggm_key will be used.
+      modules_excluded (list): List of modules to exclude from integration (default None).
       keep_modules (list): List of prioritized modules; if a cell is annotated by these, only consider the intersection.
       result_anno (str): Column name for the integrated annotation (default 'annotation').
       embedding_key (str): Key in adata.obsm for KNN coordinates (default 'spatial').
@@ -554,7 +619,20 @@ def integrate_annotations(adata,
       use_smooth (bool): Whether to use smoothed annotations (default True).
       neighbor_majority_frac (float): If a module's annotation accounts for >= this fraction among neighbors, it is directly selected (default 0.90).
     """
+    if ggm_key not in adata.uns['ggm_keys']:
+        raise ValueError(f"{ggm_key} not found in adata.uns['ggm_keys']")
+    mod_stats_key = adata.uns['ggm_keys'][ggm_key]['module_stats']
+
+    if cross_ggm and len(adata.uns['ggm_keys']) > 2: 
+        if modules_used is None:
+            raise ValueError("When cross_ggm is True, modules_used must be provided manually.")
+
     # Check input: ensure embedding_key exists in adata.obsm.
+    if neighbor_majority_frac < 0 or neighbor_majority_frac > 1:
+        raise ValueError("neighbor_majority_frac must be within [0, 1].")
+    if neighbor_majority_frac == 0 or neighbor_majority_frac == 1:
+        print("When set to 0 or 1, the neighbor_majority_frac will not be used.")
+
     if  embedding_key not in adata.obsm:
         raise ValueError(f"{embedding_key} not found in adata.obsm. Please ensure the coordinate exists.")
     
@@ -564,25 +642,29 @@ def integrate_annotations(adata,
         adata.obs.drop(columns=result_anno, inplace=True)
     
     # Check and extract annotation columns.
-    if module_list is None:
-        module_list = adata.uns['module_stats']['module_id'].unique()
- 
+    # If modules_used is not provided, use all modules in adata.uns[mod_stats_key].
+    if modules_used is None:
+        modules_used = adata.uns[mod_stats_key]['module_id'].unique()
+    # Exclude modules if the modules_excluded list is provided.
+    if modules_excluded is not None:
+        modules_used = [mid for mid in modules_used if mid not in modules_excluded]
+
     if use_smooth:
         # Identify modules missing smoothed annotation columns.
-        missing_smooth = [mid for mid in module_list if f"{mid}_anno_smooth" not in adata.obs]
+        missing_smooth = [mid for mid in modules_used if f"{mid}_anno_smooth" not in adata.obs]
         if missing_smooth:
             print(f"\nThese modules do not have 'Smooth anno': {missing_smooth}. Using 'anno' instead.")
         # Use smoothed columns if available; otherwise, use the original '_anno' columns.
         existing_columns = []
-        for mid in module_list:
+        for mid in modules_used:
             if f"{mid}_anno_smooth" in adata.obs:
                 existing_columns.append(f"{mid}_anno_smooth")
             elif f"{mid}_anno" in adata.obs:
                 existing_columns.append(f"{mid}_anno")
     else:
-        existing_columns = [f"{mid}_anno" for mid in module_list if f"{mid}_anno" in adata.obs]
+        existing_columns = [f"{mid}_anno" for mid in modules_used if f"{mid}_anno" in adata.obs]
     
-    if len(existing_columns) != len(module_list):
+    if len(existing_columns) != len(modules_used):
         raise ValueError("The annotation columns for the specified modules do not fully match those in adata.obs. Please check your input.")
     
     
@@ -599,7 +681,7 @@ def integrate_annotations(adata,
     # 2) Pre-calculate expression scores based on ranked expression.
     expr_score = {}
     anno_dict = {}
-    for mid in module_list:
+    for mid in modules_used:
         module_col = f"{mid}_exp"
         if module_col not in adata.obs.columns:
             raise KeyError(f"'{module_col}' not found in adata.obs.")        
@@ -607,12 +689,12 @@ def integrate_annotations(adata,
         expr_score[mid] = rank_vals.values
     
     # 3) Build annotation mask.
-    for mid in module_list:
+    for mid in modules_used:
         if f"{mid}_anno" in existing_columns:
             anno_col = f"{mid}_anno"
         else:
             anno_col = f"{mid}_anno_smooth"    
-        anno_dict[mid] = adata.obs[anno_col].values
+        anno_dict[mid] = (adata.obs[anno_col] == mid).astype(int).values
     
     unclear_cells = 0
     unclear_cells_neighbor = 0
@@ -620,7 +702,7 @@ def integrate_annotations(adata,
     # 3) Integrate annotations for each cell.
     for i in range(n_obs):
         # Find which modules annotate the cell.
-        annotated_modules = [p for p in module_list if anno_dict[p][i]]
+        annotated_modules = [p for p in modules_used if anno_dict[p][i]]
         if len(annotated_modules) > 1:
             unclear_cells += 1
 
@@ -631,7 +713,7 @@ def integrate_annotations(adata,
                 annotated_modules = intersection
         
         if len(annotated_modules) == 0:
-            combined_annotation[i] = "None"
+            combined_annotation[i] = None
             continue
         if len(annotated_modules) == 1:
             combined_annotation[i] = annotated_modules[0]
@@ -651,7 +733,7 @@ def integrate_annotations(adata,
         annotated_modules_re = []
         for mid in annotated_modules:
             frac = neighbor_counts[mid] / n_nb
-            if frac >= neighbor_majority_frac:
+            if frac > neighbor_majority_frac:
                 annotated_modules_re.append(mid)
         
         if len(annotated_modules_re) == 1:
@@ -681,10 +763,14 @@ def integrate_annotations(adata,
     # Update integrated annotation in adata.obs.
     annotation_df = pd.Series(combined_annotation, index=adata.obs.index, name=result_anno)
     adata.obs[result_anno] = annotation_df
+    print(f"\nIntegrated annotation stored in adata.obs['{result_anno}'].\n")
 
 
 # calculate_module_overlap
-def calculate_module_overlap(adata, module_list, use_smooth=True):
+def calculate_module_overlap(adata, ggm_key='ggm', cross_ggm=False,
+                             modules_used=None, 
+                             modules_excluded=None,
+                             use_smooth=True):
     """
     Compute the overlap ratios between modules based on annotation columns in adata.obs.
     
@@ -703,45 +789,59 @@ def calculate_module_overlap(adata, module_list, use_smooth=True):
     Parameters:
       adata (AnnData): AnnData object. The annotation columns should exist in adata.obs with names 
                        "{module_id}_anno" or "{module_id}_anno_smooth".
-      module_list (list): List of module IDs to compute overlaps.
+      ggm_key (str): Key for the GGM object in adata.uns
+      cross_ggm (bool): Whether to calculate overlaps across multiple GGMs (default False).
+      modules_used (list): List of module IDs to compute overlaps.
+      modules_excluded (list): List of module IDs to exclude from overlap calculation.
       use_smooth (bool): Whether to use smoothed annotation columns (default True).
 
     Returns:
       pd.DataFrame: DataFrame containing the overlap statistics.
     """
-    # If module_list is not provided, get modules from uns['module_stats']
-    if module_list is None:
-        module_list = adata.uns['module_stats']['module_id'].unique()
-    
+    if ggm_key not in adata.uns['ggm_keys']:
+        raise ValueError(f"{ggm_key} not found in adata.uns['ggm_keys']")
+    mod_stats_key = adata.uns['ggm_keys'][ggm_key]['module_stats']
+
+    if cross_ggm and len(adata.uns['ggm_keys']) > 2:
+        if modules_used is None:
+            raise ValueError("When cross_ggm is True, modules_used must be provided manually.")
+
+    # If modules_used is not provided, get modules from uns['module_stats']
+    if modules_used is None:
+        modules_used = adata.uns[mod_stats_key]['module_id'].unique()
+    # Exclude modules if the modules_excluded list is provided    
+    if modules_excluded is not None:
+        modules_used = [mid for mid in modules_used if mid not in modules_excluded]
+
     # Determine which annotation column to use for each module.
     if use_smooth:
-        missing_smooth = [mid for mid in module_list if f"{mid}_anno_smooth" not in adata.obs]
+        missing_smooth = [mid for mid in modules_used if f"{mid}_anno_smooth" not in adata.obs]
         if missing_smooth:
             print(f"\nThese modules do not have 'smoothed anno': {missing_smooth}. Using 'anno' instead.")
         existing_columns = []
-        for mid in module_list:
+        for mid in modules_used:
             if f"{mid}_anno_smooth" in adata.obs:
                 existing_columns.append(f"{mid}_anno_smooth")
             elif f"{mid}_anno" in adata.obs:
                 existing_columns.append(f"{mid}_anno")
     else:
-        existing_columns = [f"{mid}_anno" for mid in module_list if f"{mid}_anno" in adata.obs]
+        existing_columns = [f"{mid}_anno" for mid in modules_used if f"{mid}_anno" in adata.obs]
     
-    if len(existing_columns) != len(module_list):
+    if len(existing_columns) != len(modules_used):
         raise ValueError("The annotation columns for the specified modules do not fully match those in adata.obs. Please check your input.")
     
     # Build a dictionary mapping module IDs to their annotation (0/1) arrays.
     anno_dict = {}
-    for prog in module_list:
-        if f"{prog}_anno" in existing_columns:
-            anno_col = f"{prog}_anno"
+    for mid in modules_used:
+        if f"{mid}_anno" in existing_columns:
+            anno_col = f"{mid}_anno"
         else:
-            anno_col = f"{prog}_anno_smooth"
-        anno_dict[prog] = adata.obs[anno_col].values
+            anno_col = f"{mid}_anno_smooth"    
+        anno_dict[mid] = (adata.obs[anno_col] == mid).astype(int).values
     
     overlap_records = []
     # Iterate over all pairs of modules.
-    for mod_a, mod_b in itertools.combinations(module_list, 2):
+    for mod_a, mod_b in itertools.combinations(modules_used, 2):
         a = anno_dict[mod_a]
         b = anno_dict[mod_b]
         count_a = np.sum(a)
@@ -776,47 +876,71 @@ def calculate_module_overlap(adata, module_list, use_smooth=True):
 ############################################################################################################
 # Old functions
 # integrate_annotations_old
-def integrate_annotations_old(adata, module_list=None, result_anno = "annotation", use_smooth=True):
+def integrate_annotations_old(adata, ggm_key='ggm',cross_ggm = False,
+                              modules_used=None, modules_excluded=None,
+                              result_anno = "annotation", use_smooth=True):
     """
     Integrate module annotations into a single cell annotation.
     
     Parameters:
         adata (anndata.AnnData): AnnData object containing module annotations.
-        module_list (list): List of module IDs to integrate; if None, all modules are used.
+        ggm_key (str): Key for the GGM object in adata.uns['ggm_keys'].
+        cross_ggm (bool): Whether to integrate annotations from multiple GGMs (default False).
+        modules_used (list): List of module IDs to integrate; if None, all modules are used.
+        modules_excluded (list): List of module IDs to exclude from integration (default None).
         result_anno (str): Column name for the integrated annotation (default 'annotation').
         use_smooth (bool): Whether to use smoothed annotations (default True).
     """
+    if ggm_key not in adata.uns['ggm_keys']:    
+        raise ValueError(f"{ggm_key} not found in adata.uns['ggm_keys']")
+    mod_stats_key = adata.uns['ggm_keys'][ggm_key]['module_stats']
+
+    if cross_ggm and len(adata.uns['ggm_keys']) > 2:
+        if modules_used is None:
+            raise ValueError("When cross_ggm is True, modules_used must be provided manually.")
+
     # Check if the integrated annotation column already exists
     if adata.obs.get(result_anno) is not None:
         print(f"NOTE: The '{result_anno}' already exists in adata.obs, which will be overwritten.")
         adata.obs.drop(columns=result_anno, inplace=True)
 
     # Determine and extract annotation columns
-    if module_list is None:
-        module_list = adata.uns['module_stats']['module_id'].unique()
+    if modules_used is None:
+        modules_used = adata.uns[mod_stats_key]['module_id'].unique()
+    # Exclude modules if the modules_excluded list is provided
+    if modules_excluded is not None:
+        modules_used = [mid for mid in modules_used if mid not in modules_excluded]
 
     if use_smooth:
         # Identify modules missing smoothed annotation columns
-        missing_smooth = [mid for mid in module_list if f"{mid}_anno_smooth" not in adata.obs]
+        missing_smooth = [mid for mid in modules_used if f"{mid}_anno_smooth" not in adata.obs]
         if missing_smooth:
             print(f"\nThese modules do not have 'Smooth anno': {missing_smooth}. Using 'anno' instead.")
         # For modules with smoothed columns, use them; otherwise, use the original '_anno' columns
         existing_columns = []
-        for mid in module_list:
+        for mid in modules_used:
             if f"{mid}_anno_smooth" in adata.obs:
                 existing_columns.append(f"{mid}_anno_smooth")
             elif f"{mid}_anno" in adata.obs:
                 existing_columns.append(f"{mid}_anno")
     else:
-        existing_columns = [f"{mid}_anno" for mid in module_list if f"{mid}_anno" in adata.obs]
+        existing_columns = [f"{mid}_anno" for mid in modules_used if f"{mid}_anno" in adata.obs]
     
-    if len(existing_columns) != len(module_list):
+    if len(existing_columns) != len(modules_used):
         raise ValueError("The annotation columns for the specified modules do not fully match those in adata.obs. Please check your input.")
     
     
     # Extract module annotations
     module_annotations = adata.obs.loc[:, [mid for mid in existing_columns]]
-
+    # Reset the module id anno to 0/1 anno
+    for col in module_annotations.columns:
+        orig_name_1 = col.replace("_anno", "")
+        orig_name_2 = col.replace("_anno_smooth", "")
+        if orig_name_1 in module_annotations.columns:
+            module_annotations[col] = (module_annotations[col] == orig_name_1).astype(int)
+        else:
+            module_annotations[col] = (module_annotations[col] == orig_name_2).astype(int)
+        
     # Compute the number of annotated cells for each module
     module_counts = module_annotations.sum(axis=0)
 
