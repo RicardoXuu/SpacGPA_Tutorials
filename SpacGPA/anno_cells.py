@@ -209,7 +209,7 @@ def calculate_module_expression(adata,
     print(f"Storing module information in adata.uns['{mod_info_key}']...")
     adata.uns[mod_info_key] = module_df.copy()
    
-    # 9. Store the weighted-average-expression in both obsm and obs of the original adata object
+    # 10. Store the weighted-average-expression in both obsm and obs of the original adata object
     # Store in obsm (as a single matrix)
     # Scale the weighted expression by standard scaling
     scaler = StandardScaler()
@@ -421,6 +421,7 @@ def calculate_gmm_annotations(adata,
                     main_component = np.argmax(means)
                     
                     probs = gmm.predict_proba(non_zero_expr.reshape(-1, 1))[:, main_component]
+                    #anno_non_zero = (probs >= 0.9999).astype(int)
                     #anno_non_zero = (probs >= prob_threshold).astype(int)
                     anno_non_zero = (probs >= ((1 - (1 - prob_threshold) * 1e-2))).astype(int)
                     
@@ -590,20 +591,24 @@ def integrate_annotations(adata,
                           cross_ggm = False,
                           modules_used=None,
                           modules_excluded=None,
-                          keep_modules=None,
+                          modules_preferred=None,
                           result_anno='annotation',
                           embedding_key='spatial',
                           k_neighbors=24,
                           use_smooth=True,
-                          neighbor_majority_frac=0.90
+                          neighbor_similarity_ratio=0.90
                           ):            
     """
-    Integrate cell annotations from multiple programs using the following logic:
+    Integrate cell annotations from multiple modules using the following logic:
       1) Optionally use smoothed annotations (controlled by use_smooth);
       2) Automatically compute k_neighbors nearest neighbors;
-      3) If a cell is annotated by multiple programs:
-         3.1 If > neighbor_majority_frac (adjustable) of its neighbors belong to one program, select that program;
-         3.2 Otherwise, decide based on expression scores, the higher the value, the higher the priority.
+      3) For cells annotated by multiple modules:
+            3.1 If There are modules_preferred and the cell has these modules in its potential annotation,
+                the cell will be given priority to be annotated with these modules. 
+            3.2 If the fraction of a cell's neighbors annotated with a particular module exceeds 
+                the neighbor_similarity_ratio threshold, the cell is assigned that module.
+            3.3 Otherwise, the final annotation is determined based on expression scores, where 
+                higher expression scores confer higher priority.
     
     Parameters:
       adata (anndata.AnnData): AnnData object containing module annotations.
@@ -612,12 +617,16 @@ def integrate_annotations(adata,
                         When True, modules_used must be provided manually.
       modules_used (list): List of modules to integrate; if None, all modules of the GGM mentioned in ggm_key will be used.
       modules_excluded (list): List of modules to exclude from integration (default None).
-      keep_modules (list): List of prioritized modules; if a cell is annotated by these, only consider the intersection.
+      modules_preferred (list): List of preferred modules; if a cell has these modules in its potential annotation, 
+                                the cell will be given priority to be annotated with these modules.
       result_anno (str): Column name for the integrated annotation (default 'annotation').
       embedding_key (str): Key in adata.obsm for KNN coordinates (default 'spatial').
       k_neighbors (int): Number of KNN neighbors (default 24); may need adjustment based on technology and cell density.
       use_smooth (bool): Whether to use smoothed annotations (default True).
-      neighbor_majority_frac (float): If a module's annotation accounts for >= this fraction among neighbors, it is directly selected (default 0.90).
+      neighbor_similarity_ratio (float): A threshold representing the proportion of a cell's annotation that must match 
+                                         its neighboring cells' annotations. 
+                                         If the matching ratio exceeds this threshold, the cell will be directly annotated 
+                                         with its neighbor's annotation. (Valid range: [0, 1]. default 0.90.)
     """
     if ggm_key not in adata.uns['ggm_keys']:
         raise ValueError(f"{ggm_key} not found in adata.uns['ggm_keys']")
@@ -628,10 +637,10 @@ def integrate_annotations(adata,
             raise ValueError("When cross_ggm is True, modules_used must be provided manually.")
 
     # Check input: ensure embedding_key exists in adata.obsm.
-    if neighbor_majority_frac < 0 or neighbor_majority_frac > 1:
-        raise ValueError("neighbor_majority_frac must be within [0, 1].")
-    if neighbor_majority_frac == 0 or neighbor_majority_frac == 1:
-        print("When set to 0 or 1, the neighbor_majority_frac will not be used.")
+    if neighbor_similarity_ratio < 0 or neighbor_similarity_ratio > 1:
+        raise ValueError("neighbor_similarity_ratio must be within [0, 1].")
+    if neighbor_similarity_ratio == 0:
+        print("When set to 0, the neighbor_similarity_ratio will not be used.")
 
     if  embedding_key not in adata.obsm:
         raise ValueError(f"{embedding_key} not found in adata.obsm. Please ensure the coordinate exists.")
@@ -706,9 +715,9 @@ def integrate_annotations(adata,
         if len(annotated_modules) > 1:
             unclear_cells += 1
 
-        # If keep_modules is provided, take the intersection (prioritize these modules).
-        if keep_modules is not None:
-            intersection = [p for p in annotated_modules if p in keep_modules]
+        # If modules_preferred is provided, take the intersection (prioritize these modules).
+        if modules_preferred is not None:
+            intersection = [p for p in annotated_modules if p in modules_preferred]
             if intersection:
                 annotated_modules = intersection
         
@@ -733,7 +742,7 @@ def integrate_annotations(adata,
         annotated_modules_re = []
         for mid in annotated_modules:
             frac = neighbor_counts[mid] / n_nb
-            if frac > neighbor_majority_frac:
+            if frac >= neighbor_similarity_ratio:
                 annotated_modules_re.append(mid)
         
         if len(annotated_modules_re) == 1:

@@ -29,79 +29,163 @@ os.getcwd()
 #from SpacGPA import *
 import SpacGPA as sg
 
-# %%
-# 读取数据
-adata = sc.read_visium("/dta/ypxu/ST_GGM/VS_Code/ST_GGM_dev_1/data/visium/CytAssist_FreshFrozen_Mouse_Brain_Rep2",
-                       count_file="CytAssist_FreshFrozen_Mouse_Brain_Rep2_filtered_feature_bc_matrix.h5")
-adata.var_names_make_unique()
-adata.var_names = adata.var['gene_ids']
-sc.pp.normalize_total(adata, target_sum=1e4)
-sc.pp.log1p(adata)
-print(adata.X.shape)
+# # %%
+# # 读取数据
+# adata = sc.read_visium("/dta/ypxu/ST_GGM/VS_Code/ST_GGM_dev_1/data/visium/CytAssist_FreshFrozen_Mouse_Brain_Rep2",
+#                        count_file="CytAssist_FreshFrozen_Mouse_Brain_Rep2_filtered_feature_bc_matrix.h5")
+# adata.var_names_make_unique()
+# adata.var_names = adata.var['gene_ids']
+# sc.pp.normalize_total(adata, target_sum=1e4)
+# sc.pp.log1p(adata)
+# print(adata.X.shape)
+
+# # %%
+# # 读取原始数据集提供的两种注释
+# graph_cluster = pd.read_csv('/dta/ypxu/ST_GGM/Raw_Datasets/visium/CytAssist_FreshFrozen_Mouse_Brain_Rep2/analysis/clustering/gene_expression_graphclust/clusters.csv',
+#                             header=0, sep=',', index_col=0)
+# kmeans_10_clusters = pd.read_csv('/dta/ypxu/ST_GGM/Raw_Datasets/visium/CytAssist_FreshFrozen_Mouse_Brain_Rep2/analysis/clustering/gene_expression_kmeans_10_clusters/clusters.csv',
+#                                 header=0, sep=',', index_col=0)
+
+# adata.obs['graph_cluster'] = graph_cluster.loc[adata.obs_names, 'Cluster']
+# adata.obs['graph_cluster'] = adata.obs['graph_cluster'].astype('category')
+
+# adata.obs['kmeans_10_clusters'] = kmeans_10_clusters.loc[adata.obs_names, 'Cluster']
+# adata.obs['kmeans_10_clusters'] = adata.obs['kmeans_10_clusters'].astype('category')
 
 
-# %%
-# 读取 ggm
-start_time = time.time()
-ggm = sg.load_ggm("data/ggm_gpu_32.h5")
-print(f"Read ggm: {time.time() - start_time:.5f} s")
-# 读取联合分析的ggm
-ggm_mulit_intersection = sg.load_ggm("data/ggm_mulit_intersection.h5")
-print(f"Read ggm_mulit_intersection: {time.time() - start_time:.5f} s")
-ggm_mulit_union = sg.load_ggm("data/ggm_mulit_union.h5")
-print(f"Read ggm_mulit_union: {time.time() - start_time:.5f} s")
-print("=====================================")
-print(ggm)
-print("=====================================")
-print(ggm_mulit_intersection)
-print("=====================================")
-print(ggm_mulit_union)
+# # %%
+# # 读取 ggm
+# start_time = time.time()
+# ggm = sg.load_ggm("data/ggm_gpu_32.h5")
+# print(f"Read ggm: {time.time() - start_time:.5f} s")
+# # 读取联合分析的ggm
+# ggm_mulit_intersection = sg.load_ggm("data/ggm_mulit_intersection.h5")
+# print(f"Read ggm_mulit_intersection: {time.time() - start_time:.5f} s")
+# ggm_mulit_union = sg.load_ggm("data/ggm_mulit_union.h5")
+# print(f"Read ggm_mulit_union: {time.time() - start_time:.5f} s")
+# print("=====================================")
+# print(ggm)
+# print("=====================================")
+# print(ggm_mulit_intersection)
+# print("=====================================")
+# print(ggm_mulit_union)
+
+# # %%
+# adata
+
+# # %%
+# # 计算模块的加权表达值
+# start_time = time.time()
+# sg.calculate_module_expression(adata, 
+#                                ggm_obj=ggm, 
+#                                top_genes=30,
+#                                weighted=True,
+#                                calculate_moran=True,
+#                                embedding_key='spatial',
+#                                k_neighbors=6)  
+# print(f"Time1: {time.time() - start_time:.5f} s")
+
+# sg.calculate_module_expression(adata, 
+#                                ggm_obj=ggm_mulit_intersection, 
+#                                ggm_key='intersection',
+#                                top_genes=30,
+#                                weighted=True,
+#                                calculate_moran=True,
+#                                embedding_key='spatial',
+#                                k_neighbors=6)  
+# print(f"Time2: {time.time() - start_time:.5f} s")
+
+# sg.calculate_module_expression(adata, 
+#                                ggm_obj=ggm_mulit_union, 
+#                                ggm_key='union',
+#                                top_genes=30,
+#                                weighted=True,
+#                                calculate_moran=True,
+#                                embedding_key='spatial',
+#                                k_neighbors=6)  
+# print(f"Time3 {time.time() - start_time:.5f} s")
+
+
+# # %%
+# sc.pp.neighbors(adata, n_neighbors=18, use_rep='module_expression_scaled',n_pcs=40)
+# sc.tl.leiden(adata, resolution=0.5, key_added='leiden_0.5')
+# sc.tl.leiden(adata, resolution=1, key_added='leiden_1')
+# sc.tl.louvain(adata, resolution=0.5, key_added='louvan_0.5')
+# sc.tl.louvain(adata, resolution=1, key_added='louvan_1')
+
+# # %%
+# sc.pp.neighbors(adata, n_neighbors=18, use_rep='intersection_module_expression_scaled',
+#                 n_pcs=adata.obsm['intersection_module_expression_scaled'].shape[1])
+# sc.tl.leiden(adata, resolution=0.5, key_added='leiden_0.5_intersection')
+# sc.tl.leiden(adata, resolution=1, key_added='leiden_1_intersection')
+# sc.tl.louvain(adata, resolution=0.5, key_added='louvan_0.5_intersection')
+# sc.tl.louvain(adata, resolution=1, key_added='louvan_1_intersection')
+
+# # %%
+# sc.pp.neighbors(adata, n_neighbors=18, use_rep='union_module_expression_scaled',
+#                 n_pcs=adata.obsm['union_module_expression_scaled'].shape[1])
+# sc.tl.leiden(adata, resolution=0.5, key_added='leiden_0.5_union')
+# sc.tl.leiden(adata, resolution=1, key_added='leiden_1_union')
+# sc.tl.louvain(adata, resolution=0.5, key_added='louvan_0.5_union')
+# sc.tl.louvain(adata, resolution=1, key_added='louvan_1_union')
+
+
+# # %%
+# adata.write("data/CytAssist_FreshFrozen_Mouse_Brain_Rep2_ggm_anno_union_intersection.h5ad")
+# del adata, ggm, ggm_mulit_intersection, ggm_mulit_union
+# gc.collect()
 
 # %%
+adata = sc.read("data/CytAssist_FreshFrozen_Mouse_Brain_Rep2_ggm_anno_union_intersection.h5ad")
 adata
 
-# %%
-# 计算模块的加权表达值
-start_time = time.time()
-sg.calculate_module_expression(adata, 
-                               ggm_obj=ggm, 
-                               top_genes=30,
-                               weighted=True,
-                               calculate_moran=True,
-                               embedding_key='spatial',
-                               k_neighbors=6)  
-print(f"Time1: {time.time() - start_time:.5f} s")
+# # %%
+# sc.pl.spatial(adata, color='graph_cluster', size=1.6, alpha_img=0.5, frameon=False, show=True,
+#               save="/CytAssist_FreshFrozen_Mouse_Brain_Rep2_graph_cluster.pdf")
+# # %%
+# sc.pl.spatial(adata, color='kmeans_10_clusters', size=1.6, alpha_img=0.5, frameon=False, show=True,
+#               save="/CytAssist_FreshFrozen_Mouse_Brain_Rep2_kmeans_10_clusters.pdf")
 
-sg.calculate_module_expression(adata, 
-                               ggm_obj=ggm_mulit_intersection, 
-                               ggm_key='intersection',
-                               top_genes=30,
-                               weighted=True,
-                               calculate_moran=True,
-                               embedding_key='spatial',
-                               k_neighbors=6)  
-print(f"Time2: {time.time() - start_time:.5f} s")
-
-sg.calculate_module_expression(adata, 
-                               ggm_obj=ggm_mulit_union, 
-                               ggm_key='union',
-                               top_genes=30,
-                               weighted=True,
-                               calculate_moran=True,
-                               embedding_key='spatial',
-                               k_neighbors=6)  
-print(f"Time3 {time.time() - start_time:.5f} s")
+# # %%
+# sc.pl.spatial(adata, color='leiden_0.5', size=1.6, alpha_img=0.5, frameon=False, show=True,
+#               save="/CytAssist_FreshFrozen_Mouse_Brain_Rep2_ggm_leiden_0.5.pdf")
+# # %%
+# sc.pl.spatial(adata, color='leiden_1', size=1.6, alpha_img=0.5, frameon=False, show=True,
+#               save="/CytAssist_FreshFrozen_Mouse_Brain_Rep2_ggm_leiden_1.pdf")
+# # %%
+# sc.pl.spatial(adata, color='louvan_0.5', size=1.6, alpha_img=0.5, frameon=False, show=True,
+#               save="/CytAssist_FreshFrozen_Mouse_Brain_Rep2_ggm_louvan_0.5.pdf")
+# # %%
+# sc.pl.spatial(adata, color='louvan_1', size=1.6, alpha_img=0.5, frameon=False, show=True,
+#               save="/CytAssist_FreshFrozen_Mouse_Brain_Rep2_ggm_louvan_1.pdf")
 
 
-#  %%
-adata.uns['module_info'][adata.uns['module_info']['module_id']=='M01']['module_moran_I'].unique()
+# # %%
+# sc.pl.spatial(adata, color='leiden_0.5_intersection', size=1.6, alpha_img=0.5, frameon=False, show=True,
+#               save="/CytAssist_FreshFrozen_Mouse_Brain_Rep2_ggm_intersection_leiden_0.5.pdf")
+# # %%
+# sc.pl.spatial(adata, color='leiden_1_intersection', size=1.6, alpha_img=0.5, frameon=False, show=True,
+#               save="/CytAssist_FreshFrozen_Mouse_Brain_Rep2_ggm_intersection_leiden_1.pdf")
+# # %%
+# sc.pl.spatial(adata, color='louvan_0.5_intersection', size=1.6, alpha_img=0.5, frameon=False, show=True,
+#               save="/CytAssist_FreshFrozen_Mouse_Brain_Rep2_ggm_intersection_louvan_0.5.pdf")
+# # %%
+# sc.pl.spatial(adata, color='louvan_1_intersection', size=1.6, alpha_img=0.5, frameon=False, show=True,
+#               save="/CytAssist_FreshFrozen_Mouse_Brain_Rep2_ggm_intersection_louvan_1.pdf")
 
-# %%
-adata.uns['intersection_module_info']['module_moran_I'].describe()
 
-# %%
-adata.uns['union_module_info']['module_moran_I'].describe()
-
+# # %%
+# sc.pl.spatial(adata, color='leiden_0.5_union', size=1.6, alpha_img=0.5, frameon=False, show=True,
+#               save="/CytAssist_FreshFrozen_Mouse_Brain_Rep2_ggm_union_leiden_0.5.pdf")
+# # %%
+# sc.pl.spatial(adata, color='leiden_1_union', size=1.6, alpha_img=0.5, frameon=False, show=True,
+#               save="/CytAssist_FreshFrozen_Mouse_Brain_Rep2_ggm_union_leiden_1.pdf")
+# # %%
+# sc.pl.spatial(adata, color='louvan_0.5_union', size=1.6, alpha_img=0.5, frameon=False, show=True,
+#               save="/CytAssist_FreshFrozen_Mouse_Brain_Rep2_ggm_union_louvan_0.5.pdf")
+# # %%
+# sc.pl.spatial(adata, color='louvan_1_union', size=1.6, alpha_img=0.5, frameon=False, show=True,
+#               save="/CytAssist_FreshFrozen_Mouse_Brain_Rep2_ggm_union_louvan_1.pdf")
 
 
 
@@ -125,10 +209,7 @@ print(f"Time: {time.time() - start_time:.5f} s")
 print(adata.uns['module_stats'])
 
 # %%
-sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "", frameon = False, color="M01_exp", show=True)
-
-# %%
-
+sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "", frameon = False, color="M01_anno", show=True)
 
 # %%
 # 平滑注释
@@ -147,7 +228,7 @@ sg.smooth_annotations(adata,
 print(f"Time: {time.time() - start_time:.5f} s")    
 
 # %%
-sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "", frameon = False, color="M01_anno", show=True)
+sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "", frameon = False, color="M01_anno_smooth", show=True)
 
 # %%
 for module in adata.uns['module_stats']['module_id'].unique():
@@ -156,21 +237,6 @@ for module in adata.uns['module_stats']['module_id'].unique():
     sc.pl.spatial(adata, color=[f"{module}_exp",f"{module}_anno",f"{module}_anno_smooth"], 
                   color_map="Reds", alpha_img = 0.5, size = 1.6, frameon = False, show=True)
 
-# %%
-for module in adata.uns['intersection_module_stats']['module_id'].unique():
-    print(module)
-    print(adata.uns['intersection_module_info'][adata.uns['intersection_module_info']['module_id']==module]['module_moran_I'].unique())
-    sc.pl.spatial(adata, color=[f"{module}_exp",f"{module}_anno",f"{module}_anno_smooth"],
-                    color_map="Reds", alpha_img = 0.5, size = 1.6, frameon = False, show=True)
-    
-
-# %%
-for module in adata.uns['union_module_stats']['module_id'].unique():
-    print(module)
-    print(adata.uns['union_module_info'][adata.uns['union_module_info']['module_id']==module]['module_moran_I'].unique())
-    sc.pl.spatial(adata, color=[f"{module}_exp",f"{module}_anno",f"{module}_anno_smooth"],
-                    color_map="Reds", alpha_img = 0.5, size = 1.6, frameon = False, show=True)
-
 
 # %%
 # 合并注释（考虑空间坐标和模块表达值）
@@ -178,7 +244,9 @@ start_time = time.time()
 sg.integrate_annotations(adata,
                         ggm_key='ggm',
                         #modules_used=None,
-                        #modules_used = adata.uns['module_info']['module_id'].unique(), 
+                        modules_used=adata.uns['module_info'][adata.uns['module_info']['module_moran_I'] > 0.6]['module_id'].unique(),
+                        modules_preferred=adata.uns['module_info'][adata.uns['module_info']['module_moran_I'] > 0.8]['module_id'].unique(),
+                        #modules_used = adata.uns['module_info']['module_id'].unique()[0:20], 
                         #modules_used=['M01', 'M02', 'M03', 'M04', 'M05', 'M06', 'M07', 'M08', 'M09', 'M10'],
                         #modules_used=['M11', 'M12', 'M13', 'M14', 'M15', 'M16', 'M17', 'M18', 'M19', 'M20'],
                         #modules_used={'M01', 'M02', 'M03', 'M04', 'M05', 'M06', 'M07', 'M08', 'M09', 'M10'},
@@ -187,23 +255,24 @@ sg.integrate_annotations(adata,
                         embedding_key='spatial',
                         k_neighbors=18,
                         use_smooth=True,
-                        neighbor_majority_frac=1
+                        neighbor_similarity_ratio=0
                         )
 print(f"Time: {time.time() - start_time:.5f} s")
 
 
 # %%
-sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "", frameon = False, color="annotation", show=True)
+sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "", frameon = False, color="annotation", 
+              na_color="black", show=True)
 
 # %%
 # 合并注释（仅考虑模块注释的细胞数目）
 start_time = time.time()
 sg.integrate_annotations_old(adata,
-                             ggm_key='ggm',
+                            ggm_key='ggm',
                             #modules_used=None,
+                            #modules_used=adata.uns['module_stats']['module_id'].unique()[0:30], 
                             #modules_used=['M01', 'M02', 'M03', 'M04', 'M05', 'M06', 'M07', 'M08', 'M09', 'M10'],
                             #modules_used=['M11', 'M12', 'M13', 'M14', 'M15', 'M16', 'M17', 'M18', 'M19', 'M20'],
-                            #modules_used={'M01', 'M02', 'M03', 'M04', 'M05', 'M06', 'M07', 'M08', 'M09', 'M10'},
                             #modules_excluded=['M01', 'M02', 'M03', 'M04', 'M05', 'M06', 'M07', 'M08', 'M09', 'M10'],
                             result_anno = "annotation_old",
                          use_smooth=True
@@ -231,19 +300,19 @@ print(overlap_records[overlap_records['module_a'] == 'M11'])
 
 # %%
 # 问题6，关于高斯混合分布，阈值和主成分数目的关系优化。
+# 待定
 
 # %%
 # 问题7，关于高斯混合分布，除了使用高斯混合分布，也考虑表达值的排序。
 #       对于一个模块，只有那些表达水平大于模块最大表达水平（或者为了防止一些离散的点，可以考虑前20个或者30个细胞的平均值作为模块最大表达水平）的一定比例的细胞才被认为是注释为该模块的
-
-# %%
-# 问题9，关于合并注释，优化keep modules的参数。
+# 待定
 
 # %%
 # 问题10，关于合并注释，尝试引入模块的整体莫兰指数，来评估模块的空间分布。如果一个模块的莫兰指数很高，则优先考虑该模块的细胞的可信度。
 
 # %%
 # 问题11，关于合并注释，尝试结合louvain或者leiden的聚类结果，在每个聚类之内使用模块来精准注释。
+
 
 # %%
 # 问题13，关于合并注释，在adata的uns中添加一个配色方案，为每个模块指定配色，特别是模块过多的时候。
@@ -296,7 +365,7 @@ sg.integrate_annotations(adata,
                   embedding_key='spatial',
                   k_neighbors=18,
                   use_smooth=True,
-                  neighbor_majority_frac=1
+                  neighbor_similarity_ratio=1
                   )
 sg.integrate_annotations(adata,
                          ggm_key='union',
@@ -309,7 +378,7 @@ sg.integrate_annotations(adata,
                   embedding_key='spatial',
                   k_neighbors=18,
                   use_smooth=True,
-                  neighbor_majority_frac=1
+                  neighbor_similarity_ratio=1
                   )
 sg.integrate_annotations(adata,
                          ggm_key='intersection',
@@ -322,7 +391,7 @@ sg.integrate_annotations(adata,
                   embedding_key='spatial',
                   k_neighbors=18,
                   use_smooth=True,
-                  neighbor_majority_frac=1
+                  neighbor_similarity_ratio=1
                   )
 print(f"Time: {time.time() - start_time:.5f} s")
 
@@ -344,7 +413,7 @@ sg.integrate_annotations(adata,
                   embedding_key='spatial',
                   k_neighbors=18,
                   use_smooth=True,
-                  neighbor_majority_frac=1
+                  neighbor_similarity_ratio=1
                   )
 # %%
 # %%
@@ -393,6 +462,26 @@ sg.integrate_annotations_old(adata,
                          use_smooth=True
                          )
 print(f"Time: {time.time() - start_time:.5f} s")
+
+
+
+
+# %%
+for module in adata.uns['intersection_module_stats']['module_id'].unique():
+    print(module)
+    print(adata.uns['intersection_module_info'][adata.uns['intersection_module_info']['module_id']==module]['module_moran_I'].unique())
+    sc.pl.spatial(adata, color=[f"{module}_exp",f"{module}_anno",f"{module}_anno_smooth"],
+                    color_map="Reds", alpha_img = 0.5, size = 1.6, frameon = False, show=True)
+    
+
+# %%
+for module in adata.uns['union_module_stats']['module_id'].unique():
+    print(module)
+    print(adata.uns['union_module_info'][adata.uns['union_module_info']['module_id']==module]['module_moran_I'].unique())
+    sc.pl.spatial(adata, color=[f"{module}_exp",f"{module}_anno",f"{module}_anno_smooth"],
+                    color_map="Reds", alpha_img = 0.5, size = 1.6, frameon = False, show=True)
+
+
 
 
 # %%
@@ -522,18 +611,18 @@ c.save()
 # 问题4，关于模块注释的全部函数, 细胞按模块的注释结果改为category类型。而不是现在的0，1，int类型。并注意，之后在涉及到使用这些数据的时候还要换回int类型。
 # 解决
 
-
-
 # %%
 # 问题8，关于平滑处理，在使用的时候，无法仅处理部分模块。
 # 解决
 
-
+# %%
+# 问题9，关于合并注释，优化keep_modules的参数。
+# 解决
 
 # %%
 # 问题12，关于合并注释，注释结果中，字符串None改为空值的None。
 # 解决
 
 # %%
-# 问题14，关于合并注释，neighbor_majority_frac参数似乎会导致activity模块的权重过高。考虑将其设置为0或者1来避免考虑neighbor_majority_frac
+# 问题14，关于合并注释，neighbor_similarity_ratio参数似乎会导致activity模块的权重过高。考虑将其设置为0或者1来避免考虑neighbor_similarity_ratio
 # 解决
