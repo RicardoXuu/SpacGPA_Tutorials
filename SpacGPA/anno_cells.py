@@ -242,83 +242,133 @@ def calculate_module_expression(adata,
 # calculate_gmm_annotation
 def calculate_gmm_annotations(adata, 
                               ggm_key='ggm',
-                              modules_used = None,
-                              modules_excluded = None,
+                              modules_used=None,
+                              modules_excluded=None,
+                              embedding_key='spatial',
+                              k_neighbors=6,
                               max_iter=200,
                               prob_threshold=0.99,
                               min_samples=10,
                               n_components=3,
                               enable_fallback=True,
-                              random_state=42
-                              ):
+                              random_state=42):
     """
-    Gaussian Mixture Model annotation (with threshold check for 3 components).
+    Gaussian Mixture Model annotation with additional module-level statistics.
     
+    Statistics added to mod_stats_key include:
+        - module_id: Module ID.
+        - status: 'success' or 'failed'.
+        - anno_one: Number of cells annotated as 1.
+        - anno_zero: Number of cells expressed module but not annotated as 1.
+        - skew: Skewness of the non-zero expression distribution for the module.
+        - top1pct_ratio: Ratio of the average expression among the top 1% high-expressing cells
+                        to the overall cells mean.
+        - module_moran_I: Global Moran's I computed on the module expression (all cells).
+        - positive_moran_I: Moran's I computed on module expression for cells annotated as 1.
+        - negative_moran_I: Moran's I computed on module expression for cells annotated as 0.
+        - positive_mean_distance: Average pairwise spatial distance among cells annotated as 1.
+        - n_components: Number of components in the GMM.
+        - final_components: Number of components after fallback.
+        - threshold: Threshold for calling a cell positive.
+        - components: List of dictionaries with keys 'component', 'mean', 'var', 'weight'.
+        - main_component: Index of the main component.
+        - error_info: Error message if status is 'failed'.
+
     Parameters:
       adata: AnnData object.
       ggm_key: Key for the GGM object in adata.uns['ggm_keys'].
-      modules_used: List of module IDs.(default None)
-      modules_excluded: List of module IDs to exclude.(default None)
-      max_iter: Maximum iterations.
-      prob_threshold: Probability threshold for high expression.
-      min_samples: Minimum valid sample count.
-      n_components: Initial number of GMM components.
-      enable_fallback: Whether to enable fallback to fewer components.
+      modules_used: List of module IDs to process; if None, use all modules in adata.uns[mod_info_key].
+      modules_excluded: List of module IDs to exclude.
+      embedding_key: Key in adata.obsm containing spatial coordinates.
+      k_neighbors: Number of nearest neighbors for spatial weight matrix.
+      max_iter: Maximum iterations for GMM.
+      prob_threshold: Probability threshold for calling a cell positive.
+      min_samples: Minimum number of nonzero samples required.
+      n_components: Number of GMM components.
+      enable_fallback: Whether to fallback to a 2-component model on failure.
       random_state: Random seed.
-      
+    
     Returns:
-      adata: Updated AnnData object with:
-        - obs: Integrated annotation data (columns prefixed with "Anno_").
-        - uns['module_stats']: Raw statistics records.
+      Updates adata.obs with annotation columns (categorical, with suffix '_anno'),
+      and stores module-level statistics in adata.uns[mod_stats_key].
     """
-    # Input validation
-    if ggm_key not in adata.uns['ggm_keys']:
+    import numpy as np
+    import pandas as pd
+    import scipy.sparse as sp
+    from sklearn.mixture import GaussianMixture
+    from sklearn.neighbors import NearestNeighbors
+    from scipy.spatial.distance import pdist
+    from scipy.stats import skew
+    import warnings
+
+    # Retrieve keys from adata.uns['ggm_keys']
+    ggm_keys = adata.uns.get('ggm_keys', {})
+    if ggm_key not in ggm_keys:
         raise ValueError(f"{ggm_key} not found in adata.uns['ggm_keys']")
-
-    mod_info_key = adata.uns['ggm_keys'][ggm_key]['module_info']
-    expr_key = adata.uns['ggm_keys'][ggm_key]['module_expression']
-    mod_stats_key = adata.uns['ggm_keys'][ggm_key]['module_stats']
-
+    mod_info_key = ggm_keys[ggm_key].get('module_info')
+    mod_stats_key = ggm_keys[ggm_key].get('module_stats')
+    expr_key = ggm_keys[ggm_key].get('module_expression')
     if expr_key not in adata.obsm:
         raise ValueError(f"{expr_key} not found in adata.obsm")
     if mod_info_key not in adata.uns:
         raise ValueError(f"{mod_info_key} not found in adata.uns")
     
-    module_expr_matrix = adata.obsm[expr_key]
-    module_expr_matrix = pd.DataFrame(module_expr_matrix, index=adata.obs.index)
-    if len(adata.uns[mod_info_key]['module_id'].unique()) != module_expr_matrix.shape[1]:
+    # Extract module expression matrix and module information
+    module_expr_matrix = pd.DataFrame(adata.obsm[expr_key], index=adata.obs.index)
+    unique_mods = adata.uns[mod_info_key]['module_id'].unique()
+    if len(unique_mods) != module_expr_matrix.shape[1]:
         raise ValueError(f"module_info and module_expression dimensions for the ggm '{ggm_key}' do not match")
     else:
-        module_expr_matrix.columns = adata.uns[mod_info_key]['module_id'].unique()
-
-    # Check module list
-    # If modules_used is not provided, use all modules in adata.uns[mod_info_key]
+        module_expr_matrix.columns = unique_mods
+    
+    # Determine modules to use
     if modules_used is None:
-        modules_used = adata.uns[mod_info_key]['module_id'].unique()
-    # Exclude modules if the modules_excluded list is provided
+        modules_used = list(unique_mods)
     if modules_excluded is not None:
         modules_used = [mid for mid in modules_used if mid not in modules_excluded]
-
     valid_modules = [mid for mid in modules_used if mid in module_expr_matrix.columns]
-    
     if not valid_modules:
         raise ValueError(f"Ensure that the input module IDs exist in adata.uns['{mod_info_key}']")
     
-    existing_columns = [f"{mid}_anno" for mid in modules_used if f"{mid}_anno" in adata.obs]
-    if existing_columns:
-        print(f"Removing existing annotation columns: {existing_columns}")
-        adata.obs.drop(columns=existing_columns, inplace=True)
-
-    # Initialize annotation matrix
-    anno_cols = [f"{mid}" for mid in modules_used]
-    annotations = pd.DataFrame(
-        np.zeros((adata.obs.shape[0], len(anno_cols)), dtype=int),
-        index=adata.obs.index,
-        columns=anno_cols
-    )
+    # Remove existing annotation columns
+    for col in adata.obs.columns:
+        if col.endswith('_anno') and any(col.startswith(mid) for mid in valid_modules):
+            adata.obs.drop(columns=col, inplace=True)
+    
+    # Initialize annotation matrix (0/1) for modules
+    anno_cols = valid_modules
+    annotations = pd.DataFrame(np.zeros((adata.obs.shape[0], len(anno_cols)), dtype=int),
+                               index=adata.obs.index, columns=anno_cols)
     stats_records = []
     
-    # Process each module
+    # Pre-calculate expression ranking for tie-breaks
+    expr_score = {}
+    for mid in valid_modules:
+        module_col = f"{mid}_exp"
+        if module_col not in adata.obs.columns:
+            raise KeyError(f"'{module_col}' not found in adata.obs.")
+        rank_vals = adata.obs[module_col].rank(method='dense', ascending=False).astype(int)
+        expr_score[mid] = rank_vals.values
+    
+    # Construct spatial weights matrix W based on embedding_key
+    if embedding_key not in adata.obsm:
+        raise ValueError(f"{embedding_key} not found in adata.obsm")
+    coords = adata.obsm[embedding_key]
+    nbrs = NearestNeighbors(n_neighbors=k_neighbors, metric="euclidean").fit(coords)
+    distances, knn_indices = nbrs.kneighbors(coords)
+    with np.errstate(divide='ignore'):
+        weights = 1 / distances
+    weights[distances == 0] = 0
+    row_idx = np.repeat(np.arange(coords.shape[0]), k_neighbors)
+    col_idx = knn_indices.flatten()
+    data_w = weights.flatten()
+    W = sp.coo_matrix((data_w, (row_idx, col_idx)), shape=(coords.shape[0], coords.shape[0])).tocsr()
+    W.setdiag(0)
+    
+    # Build mapping from gene to index using adata.var_names
+    gene_to_index = {gene: i for i, gene in enumerate(adata.var_names)}
+    
+    # Process each module for GMM annotation and extra statistics
     for module_id in valid_modules:
         stats = {
             'module_id': module_id,
@@ -329,72 +379,93 @@ def calculate_gmm_annotations(adata,
             'anno_one': 0,
             'anno_zero': 0,
             'components': [],
-            'error_info': 'None'
+            'error_info': 'None',
+            'module_moran_I': np.nan,
+            'positive_mean_distance': np.nan,
+            'positive_moran_I': np.nan,
+            'negative_moran_I': np.nan,
+            'skew': np.nan,
+            'top1pct_ratio': np.nan
         }
-        
         try:
             expr_values = module_expr_matrix[module_id].values
             non_zero_mask = expr_values != 0
             non_zero_expr = expr_values[non_zero_mask]
-            
-            # Basic checks
             if len(non_zero_expr) == 0:
                 raise ValueError("all_zero_expression")
             if len(non_zero_expr) < min_samples:
-                raise ValueError(f"insufficient_samples ({len(non_zero_expr)}<{min_samples})")
+                raise ValueError(f"insufficient_samples ({len(non_zero_expr)} < {min_samples})")
             if np.var(non_zero_expr) < 1e-6:
                 raise ValueError("zero_variance")
-
-            # Fit GMM
-            gmm = GaussianMixture(
-                n_components=n_components,
-                random_state=random_state,
-                max_iter=max_iter
-            )
+            
+            # Fit GMM on non-zero expression
+            gmm = GaussianMixture(n_components=n_components, random_state=random_state, max_iter=max_iter)
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore")
                 gmm.fit(non_zero_expr.reshape(-1, 1))
-
-            # Select high-expression component
             means = gmm.means_.flatten()
-            main_component = np.argmax(means)
+            main_component = int(np.argmax(means))
             main_mean = means[main_component]
-            
-            # Compute probabilities and generate annotation
             probs = gmm.predict_proba(non_zero_expr.reshape(-1, 1))[:, main_component]
             anno_non_zero = (probs >= prob_threshold).astype(int)
-            
             if np.sum(anno_non_zero) == 0:
                 raise ValueError("no_positive_cells")
-            
-            # Compute expression threshold
             positive_expr = non_zero_expr[anno_non_zero == 1]
-            threshold = np.min(positive_expr)
-            
-            # For 3-component model, check threshold validity
+            threshold = float(np.min(positive_expr))
             if n_components >= 3 and threshold > main_mean:
                 raise ValueError(f"threshold {threshold:.2f} > μ ({main_mean:.2f})")
-            
-            # Store module annotation
-            anno_col = f"{module_id}"
-            annotations.loc[non_zero_mask, anno_col] = anno_non_zero
-            
-            # Update statistics
             stats.update({
                 'threshold': threshold,
-                'anno_one': int(anno_non_zero.sum()),
-                'anno_zero': int(len(anno_non_zero) - anno_non_zero.sum()),
+                'anno_one': int(np.sum(anno_non_zero)),
+                'anno_zero': int(len(anno_non_zero) - np.sum(anno_non_zero)),
                 'components': [
-                    {   'component': i,
-                        'mean': float(gmm.means_[i][0]),
-                        'var': float(gmm.covariances_[i][0][0]),
-                        'weight': float(gmm.weights_[i])
-                    } 
-                    for i in range(n_components)
+                    {'component': i,
+                     'mean': float(gmm.means_[i][0]),
+                     'var': float(gmm.covariances_[i][0][0]),
+                     'weight': float(gmm.weights_[i])
+                    } for i in range(n_components)
                 ],
-                'main_component': int(main_component)
+                'main_component': main_component
             })
-
+            
+            # Build full annotation vector for module: default 0, update non-zero positions
+            module_annotation = np.zeros_like(expr_values, dtype=int)
+            module_annotation[non_zero_mask] = anno_non_zero
+            annotations[module_id] = module_annotation
+            
+            # (A) Module-level Moran's I: computed on the entire module expression vector
+            mod_I = compute_moran(expr_values, W)
+            stats['module_moran_I'] = mod_I
+            
+            # (B) Positive annotation: Construct masked expression vector (0 where 0, expr where 1)
+            pos_expr_masked = np.where(module_annotation == 1, expr_values, 0)
+            stats['positive_moran_I'] = compute_moran(pos_expr_masked, W)
+            # Calculate mean distance among positive cells
+            full_indices = np.where(non_zero_mask)[0]
+            pos_idx = full_indices[anno_non_zero == 1]
+            if len(pos_idx) > 1:
+                pos_coords = coords[pos_idx, :]
+                stats['positive_mean_distance'] = float(np.mean(pdist(pos_coords)))
+            else:
+                stats['positive_mean_distance'] = np.nan
+            
+            # (C) Negative annotation: Construct masked expression vector (0 where 0, expr where 0)
+            neg_expr_masked = np.where(module_annotation == 0, expr_values, 0)
+            stats['negative_moran_I'] = compute_moran(neg_expr_masked, W)
+            
+            # (D) Skewness for non-zero expression
+            stats['skew'] = float(skew(non_zero_expr))
+            
+            # (E) Top 1% ratio: mean of top 1% high-expressing cells / overall mean
+            if len(expr_values) > 0:
+                top_n = max(1, int(len(expr_values) * 0.01))
+                sorted_expr = np.sort(expr_values)
+                top1_mean = np.mean(sorted_expr[-top_n:])
+                overall_mean = np.mean(expr_values)
+                stats['top1pct_ratio'] = top1_mean / overall_mean if overall_mean != 0 else np.nan
+            else:
+                stats['top1pct_ratio'] = np.nan
+            
         except Exception as e:
             stats.update({
                 'status': 'failed',
@@ -402,86 +473,103 @@ def calculate_gmm_annotations(adata,
                 'components': [],
                 'threshold': np.nan,
                 'anno_one': 0,
-                'anno_zero': expr_values.size
+                'anno_zero': expr_values.size if 'expr_values' in locals() else 0,
+                'module_moran_I': np.nan,
+                'positive_mean_distance': np.nan,
+                'positive_moran_I': np.nan,
+                'negative_moran_I': np.nan,
+                'skew': np.nan,
+                'top1pct_ratio': np.nan
             })
-            
-            # Fallback strategy
             if enable_fallback and n_components > 2:
                 try:
-                    # Try 2-component model (without threshold check)
-                    gmm = GaussianMixture(
-                        n_components=2,
-                        random_state=random_state,
-                        max_iter=max_iter
-                    )
+                    gmm = GaussianMixture(n_components=2, random_state=random_state, max_iter=max_iter)
                     gmm.fit(non_zero_expr.reshape(-1, 1))
-                    
-                    # Select high-expression component
                     means = gmm.means_.flatten()
-                    main_component = np.argmax(means)
-                    
+                    main_component = int(np.argmax(means))
                     probs = gmm.predict_proba(non_zero_expr.reshape(-1, 1))[:, main_component]
-                    #anno_non_zero = (probs >= 0.9999).astype(int)
-                    #anno_non_zero = (probs >= prob_threshold).astype(int)
                     anno_non_zero = (probs >= ((1 - (1 - prob_threshold) * 1e-2))).astype(int)
-                    
-                    if anno_non_zero.sum() > 0:
+                    if np.sum(anno_non_zero) > 0:
                         positive_expr = non_zero_expr[anno_non_zero == 1]
-                        threshold = np.min(positive_expr)
-                        
+                        threshold = float(np.min(positive_expr))
                         stats.update({
                             'status': 'success',
                             'final_components': 2,
                             'threshold': threshold,
-                            'anno_one': int(anno_non_zero.sum()),
-                            'anno_zero': int(len(anno_non_zero) - anno_non_zero.sum()),
+                            'anno_one': int(np.sum(anno_non_zero)),
+                            'anno_zero': int(len(anno_non_zero) - np.sum(anno_non_zero)),
                             'components': [
-                                {   'component': 0,
-                                    'mean': float(gmm.means_[0][0]),
-                                    'var': float(gmm.covariances_[0][0][0]),
-                                    'weight': float(gmm.weights_[0])
+                                {'component': 0,
+                                 'mean': float(gmm.means_[0][0]),
+                                 'var': float(gmm.covariances_[0][0][0]),
+                                 'weight': float(gmm.weights_[0])
                                 },
-                                {   'component': 1,
-                                    'mean': float(gmm.means_[1][0]),
-                                    'var': float(gmm.covariances_[1][0][0]),
-                                    'weight': float(gmm.weights_[1])
+                                {'component': 1,
+                                 'mean': float(gmm.means_[1][0]),
+                                 'var': float(gmm.covariances_[1][0][0]),
+                                 'weight': float(gmm.weights_[1])
                                 }
                             ],
-                            'main_component': int(main_component)
+                            'main_component': main_component
                         })
-                        annotations.loc[non_zero_mask, f"{module_id}"] = anno_non_zero
+                        # Update annotation after fallback
+                        fallback_annotation = np.zeros_like(expr_values, dtype=int)
+                        fallback_annotation[non_zero_mask] = anno_non_zero
+                        annotations.loc[non_zero_mask, module_id] = anno_non_zero
+                        # Module-level Moran's I
+                        fallback_mod_I = compute_moran(expr_values, W)
+                        stats['module_moran_I'] = fallback_mod_I
+                        # Positive group (用掩蔽方法)
+                        pos_expr_masked = np.where(fallback_annotation == 1, expr_values, 0)
+                        stats['positive_moran_I'] = compute_moran(pos_expr_masked, W)
+                        full_indices = np.where(non_zero_mask)[0]
+                        pos_idx = full_indices[anno_non_zero == 1]
+                        if len(pos_idx) > 1:
+                            pos_coords = coords[pos_idx, :]
+                            stats['positive_mean_distance'] = float(np.mean(pdist(pos_coords)))
+                        else:
+                            stats['positive_mean_distance'] = np.nan
+                        # Negative group
+                        neg_expr_masked = np.where(fallback_annotation == 0, expr_values, 0)
+                        stats['negative_moran_I'] = compute_moran(neg_expr_masked, W)
+                        # Skewness and top1pct_ratio
+                        stats['skew'] = float(skew(non_zero_expr))
+                        if len(non_zero_expr) > 0:
+                            top_n = max(1, int(len(non_zero_expr) * 0.01))
+                            sorted_expr = np.sort(non_zero_expr)
+                            top1_mean = np.mean(sorted_expr[-top_n:])
+                            overall_mean = np.mean(non_zero_expr)
+                            stats['top1pct_ratio'] = top1_mean / overall_mean if overall_mean != 0 else np.nan
+                        else:
+                            stats['top1pct_ratio'] = np.nan
                 except Exception as fallback_e:
                     stats['error_info'] += f"; Fallback failed: {str(fallback_e)}"
-
         finally:
             if stats['status'] == 'success':
-                print(f"{module_id} processed, {stats['status']}, anno cells : {stats['anno_one']}")
+                print(f"{module_id} processed successfully, annotated cells: {stats['anno_one']}")
             else:
-                print(f"{module_id} processed, {stats['status']}")
-
-            if stats.get('components'):
-                stats['components'] = str(stats['components'])
-            else:
-                stats['components'] = 'None'
+                print(f"{module_id} processed, failed: {stats['error_info']}")
+            stats['components'] = str(stats['components'])
             stats_records.append(stats)
-
-    # Store annotations in adata.obs        
-    annotations.columns = [f"{col}_anno" for col in annotations.columns]
     
-    # Reset the 0/1 anno to module id or None
+    # transform annotations to categorical and store in adata.obs
+    annotations.columns = [f"{col}_anno" for col in annotations.columns]
     for col in annotations.columns:
         orig_name = col.replace("_anno", "")
         annotations[col] = np.where(annotations[col] == 1, orig_name, None)
         annotations[col] = pd.Categorical(annotations[col])
-
     adata.obs = pd.concat([adata.obs, annotations], axis=1)
     
-    # Store statistics in adata.uns
+    # add module-level statistics to adata.uns[mod_stats_key]
     stats_records_df = pd.DataFrame(stats_records)
-    stats_records_df = pd.DataFrame(stats_records)
+    new_order = [
+    'module_id', 'status', 'anno_one', 'anno_zero', 'skew', 'top1pct_ratio', 
+    'module_moran_I', 'positive_moran_I', 'negative_moran_I', 'positive_mean_distance',
+    'n_components', 'final_components','threshold', 'components', 'main_component', 'error_info']
+    stats_records_df = stats_records_df[new_order]
+
     if mod_stats_key in adata.uns:
         existing_stats = adata.uns[mod_stats_key]
-        # For each module, update existing records with new data
         for mid in stats_records_df['module_id'].unique():
             new_row = stats_records_df.loc[stats_records_df['module_id'] == mid].iloc[0]
             mask = existing_stats['module_id'] == mid
@@ -495,7 +583,8 @@ def calculate_gmm_annotations(adata,
         adata.uns[mod_stats_key] = existing_stats
     else:
         adata.uns[mod_stats_key] = stats_records_df
-
+    
+    return
 
 # smooth_annotations
 def smooth_annotations(adata,
@@ -593,9 +682,9 @@ def integrate_annotations(adata,
                           modules_excluded=None,
                           modules_preferred=None,
                           result_anno='annotation',
+                          use_smooth=True,
                           embedding_key='spatial',
                           k_neighbors=24,
-                          use_smooth=True,
                           neighbor_similarity_ratio=0.90
                           ):            
     """
@@ -620,9 +709,9 @@ def integrate_annotations(adata,
       modules_preferred (list): List of preferred modules; if a cell has these modules in its potential annotation, 
                                 the cell will be given priority to be annotated with these modules.
       result_anno (str): Column name for the integrated annotation (default 'annotation').
+      use_smooth (bool): Whether to use smoothed annotations (default True).
       embedding_key (str): Key in adata.obsm for KNN coordinates (default 'spatial').
       k_neighbors (int): Number of KNN neighbors (default 24); may need adjustment based on technology and cell density.
-      use_smooth (bool): Whether to use smoothed annotations (default True).
       neighbor_similarity_ratio (float): A threshold representing the proportion of a cell's annotation that must match 
                                          its neighboring cells' annotations. 
                                          If the matching ratio exceeds this threshold, the cell will be directly annotated 
@@ -976,4 +1065,261 @@ def integrate_annotations_old(adata, ggm_key='ggm',cross_ggm = False,
     adata.obs[result_anno] = cell_annotations
 
     print(f"Cell annotation completed. Results stored in adata.obs['{result_anno}'].")
+
+
+# def calculate_gmm_annotations(adata, 
+#                               ggm_key='ggm',
+#                               modules_used = None,
+#                               modules_excluded = None,
+#                               max_iter=200,
+#                               prob_threshold=0.99,
+#                               min_samples=10,
+#                               n_components=3,
+#                               enable_fallback=True,
+#                               random_state=42
+#                               ):
+#     """
+#     Gaussian Mixture Model annotation (with threshold check for 3 components).
+    
+#     Parameters:
+#       adata: AnnData object.
+#       ggm_key: Key for the GGM object in adata.uns['ggm_keys'].
+#       modules_used: List of module IDs.(default None)
+#       modules_excluded: List of module IDs to exclude.(default None)
+#       max_iter: Maximum iterations.
+#       prob_threshold: Probability threshold for high expression.
+#       min_samples: Minimum valid sample count.
+#       n_components: Initial number of GMM components.
+#       enable_fallback: Whether to enable fallback to fewer components.
+#       random_state: Random seed.
+      
+#     Returns:
+#       adata: Updated AnnData object with:
+#         - obs: Integrated annotation data (columns prefixed with "Anno_").
+#         - uns['module_stats']: Raw statistics records.
+#     """
+#     # Input validation
+#     if ggm_key not in adata.uns['ggm_keys']:
+#         raise ValueError(f"{ggm_key} not found in adata.uns['ggm_keys']")
+
+#     mod_info_key = adata.uns['ggm_keys'][ggm_key]['module_info']
+#     expr_key = adata.uns['ggm_keys'][ggm_key]['module_expression']
+#     mod_stats_key = adata.uns['ggm_keys'][ggm_key]['module_stats']
+
+#     if expr_key not in adata.obsm:
+#         raise ValueError(f"{expr_key} not found in adata.obsm")
+#     if mod_info_key not in adata.uns:
+#         raise ValueError(f"{mod_info_key} not found in adata.uns")
+    
+#     module_expr_matrix = adata.obsm[expr_key]
+#     module_expr_matrix = pd.DataFrame(module_expr_matrix, index=adata.obs.index)
+#     if len(adata.uns[mod_info_key]['module_id'].unique()) != module_expr_matrix.shape[1]:
+#         raise ValueError(f"module_info and module_expression dimensions for the ggm '{ggm_key}' do not match")
+#     else:
+#         module_expr_matrix.columns = adata.uns[mod_info_key]['module_id'].unique()
+
+#     # Check module list
+#     # If modules_used is not provided, use all modules in adata.uns[mod_info_key]
+#     if modules_used is None:
+#         modules_used = adata.uns[mod_info_key]['module_id'].unique()
+#     # Exclude modules if the modules_excluded list is provided
+#     if modules_excluded is not None:
+#         modules_used = [mid for mid in modules_used if mid not in modules_excluded]
+
+#     valid_modules = [mid for mid in modules_used if mid in module_expr_matrix.columns]
+    
+#     if not valid_modules:
+#         raise ValueError(f"Ensure that the input module IDs exist in adata.uns['{mod_info_key}']")
+    
+#     existing_columns = [f"{mid}_anno" for mid in modules_used if f"{mid}_anno" in adata.obs]
+#     if existing_columns:
+#         print(f"Removing existing annotation columns: {existing_columns}")
+#         adata.obs.drop(columns=existing_columns, inplace=True)
+
+#     # Initialize annotation matrix
+#     anno_cols = [f"{mid}" for mid in modules_used]
+#     annotations = pd.DataFrame(
+#         np.zeros((adata.obs.shape[0], len(anno_cols)), dtype=int),
+#         index=adata.obs.index,
+#         columns=anno_cols
+#     )
+#     stats_records = []
+    
+#     # Process each module
+#     for module_id in valid_modules:
+#         stats = {
+#             'module_id': module_id,
+#             'status': 'success',
+#             'n_components': n_components,
+#             'final_components': n_components,
+#             'threshold': np.nan,
+#             'anno_one': 0,
+#             'anno_zero': 0,
+#             'components': [],
+#             'error_info': 'None'
+#         }
+        
+#         try:
+#             expr_values = module_expr_matrix[module_id].values
+#             non_zero_mask = expr_values != 0
+#             non_zero_expr = expr_values[non_zero_mask]
+            
+#             # Basic checks
+#             if len(non_zero_expr) == 0:
+#                 raise ValueError("all_zero_expression")
+#             if len(non_zero_expr) < min_samples:
+#                 raise ValueError(f"insufficient_samples ({len(non_zero_expr)}<{min_samples})")
+#             if np.var(non_zero_expr) < 1e-6:
+#                 raise ValueError("zero_variance")
+
+#             # Fit GMM
+#             gmm = GaussianMixture(
+#                 n_components=n_components,
+#                 random_state=random_state,
+#                 max_iter=max_iter
+#             )
+#             with warnings.catch_warnings():
+#                 warnings.filterwarnings("ignore")
+#                 gmm.fit(non_zero_expr.reshape(-1, 1))
+
+#             # Select high-expression component
+#             means = gmm.means_.flatten()
+#             main_component = np.argmax(means)
+#             main_mean = means[main_component]
+            
+#             # Compute probabilities and generate annotation
+#             probs = gmm.predict_proba(non_zero_expr.reshape(-1, 1))[:, main_component]
+#             anno_non_zero = (probs >= prob_threshold).astype(int)
+            
+#             if np.sum(anno_non_zero) == 0:
+#                 raise ValueError("no_positive_cells")
+            
+#             # Compute expression threshold
+#             positive_expr = non_zero_expr[anno_non_zero == 1]
+#             threshold = np.min(positive_expr)
+            
+#             # For 3-component model, check threshold validity
+#             if n_components >= 3 and threshold > main_mean:
+#                 raise ValueError(f"threshold {threshold:.2f} > μ ({main_mean:.2f})")
+            
+#             # Store module annotation
+#             anno_col = f"{module_id}"
+#             annotations.loc[non_zero_mask, anno_col] = anno_non_zero
+            
+#             # Update statistics
+#             stats.update({
+#                 'threshold': threshold,
+#                 'anno_one': int(anno_non_zero.sum()),
+#                 'anno_zero': int(len(anno_non_zero) - anno_non_zero.sum()),
+#                 'components': [
+#                     {   'component': i,
+#                         'mean': float(gmm.means_[i][0]),
+#                         'var': float(gmm.covariances_[i][0][0]),
+#                         'weight': float(gmm.weights_[i])
+#                     } 
+#                     for i in range(n_components)
+#                 ],
+#                 'main_component': int(main_component)
+#             })
+
+#         except Exception as e:
+#             stats.update({
+#                 'status': 'failed',
+#                 'error_info': str(e),
+#                 'components': [],
+#                 'threshold': np.nan,
+#                 'anno_one': 0,
+#                 'anno_zero': expr_values.size
+#             })
+            
+#             # Fallback strategy
+#             if enable_fallback and n_components > 2:
+#                 try:
+#                     # Try 2-component model (without threshold check)
+#                     gmm = GaussianMixture(
+#                         n_components=2,
+#                         random_state=random_state,
+#                         max_iter=max_iter
+#                     )
+#                     gmm.fit(non_zero_expr.reshape(-1, 1))
+                    
+#                     # Select high-expression component
+#                     means = gmm.means_.flatten()
+#                     main_component = np.argmax(means)
+                    
+#                     probs = gmm.predict_proba(non_zero_expr.reshape(-1, 1))[:, main_component]
+#                     #anno_non_zero = (probs >= 0.9999).astype(int)
+#                     #anno_non_zero = (probs >= prob_threshold).astype(int)
+#                     anno_non_zero = (probs >= ((1 - (1 - prob_threshold) * 1e-2))).astype(int)
+                    
+#                     if anno_non_zero.sum() > 0:
+#                         positive_expr = non_zero_expr[anno_non_zero == 1]
+#                         threshold = np.min(positive_expr)
+                        
+#                         stats.update({
+#                             'status': 'success',
+#                             'final_components': 2,
+#                             'threshold': threshold,
+#                             'anno_one': int(anno_non_zero.sum()),
+#                             'anno_zero': int(len(anno_non_zero) - anno_non_zero.sum()),
+#                             'components': [
+#                                 {   'component': 0,
+#                                     'mean': float(gmm.means_[0][0]),
+#                                     'var': float(gmm.covariances_[0][0][0]),
+#                                     'weight': float(gmm.weights_[0])
+#                                 },
+#                                 {   'component': 1,
+#                                     'mean': float(gmm.means_[1][0]),
+#                                     'var': float(gmm.covariances_[1][0][0]),
+#                                     'weight': float(gmm.weights_[1])
+#                                 }
+#                             ],
+#                             'main_component': int(main_component)
+#                         })
+#                         annotations.loc[non_zero_mask, f"{module_id}"] = anno_non_zero
+#                 except Exception as fallback_e:
+#                     stats['error_info'] += f"; Fallback failed: {str(fallback_e)}"
+
+#         finally:
+#             if stats['status'] == 'success':
+#                 print(f"{module_id} processed, {stats['status']}, anno cells : {stats['anno_one']}")
+#             else:
+#                 print(f"{module_id} processed, {stats['status']}")
+
+#             if stats.get('components'):
+#                 stats['components'] = str(stats['components'])
+#             else:
+#                 stats['components'] = 'None'
+#             stats_records.append(stats)
+
+#     # Store annotations in adata.obs        
+#     annotations.columns = [f"{col}_anno" for col in annotations.columns]
+    
+#     # Reset the 0/1 anno to module id or None
+#     for col in annotations.columns:
+#         orig_name = col.replace("_anno", "")
+#         annotations[col] = np.where(annotations[col] == 1, orig_name, None)
+#         annotations[col] = pd.Categorical(annotations[col])
+
+#     adata.obs = pd.concat([adata.obs, annotations], axis=1)
+    
+#     # Store statistics in adata.uns
+#     stats_records_df = pd.DataFrame(stats_records)
+#     stats_records_df = pd.DataFrame(stats_records)
+#     if mod_stats_key in adata.uns:
+#         existing_stats = adata.uns[mod_stats_key]
+#         # For each module, update existing records with new data
+#         for mid in stats_records_df['module_id'].unique():
+#             new_row = stats_records_df.loc[stats_records_df['module_id'] == mid].iloc[0]
+#             mask = existing_stats['module_id'] == mid
+#             if mask.any():
+#                 num_rows = mask.sum()
+#                 new_update_df = pd.DataFrame([new_row] * num_rows, index=existing_stats.loc[mask].index)
+#                 existing_stats.loc[mask] = new_update_df
+#             else:
+#                 existing_stats = pd.concat([existing_stats, pd.DataFrame([new_row])], ignore_index=True)
+#         existing_stats.dropna(how='all', inplace=True)
+#         adata.uns[mod_stats_key] = existing_stats
+#     else:
+#         adata.uns[mod_stats_key] = stats_records_df
 
