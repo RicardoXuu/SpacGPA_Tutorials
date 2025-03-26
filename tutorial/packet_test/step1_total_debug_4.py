@@ -54,7 +54,8 @@ adata
 # 计算模块表达值
 start_time = time.time()
 sg.calculate_module_expression(adata, 
-                               ggm_obj=ggm, 
+                               ggm_obj=ggm_mulit_intersection,
+                               ggm_key='intersection', 
                                top_genes=30,
                                weighted=True,
                                calculate_moran=True,
@@ -68,7 +69,7 @@ print(f"Time1: {time.time() - start_time:.5f} s")
 # 计算GMM注释
 start_time = time.time()
 sg.calculate_gmm_annotations(adata, 
-                            ggm_key='ggm',
+                            ggm_key='intersection',
                             #modules_used=None,
                             #modules_used=['M01', 'M02', 'M03', 'M04', 'M05', 'M06', 'M07', 'M08', 'M09', 'M10'],
                             #modules_used=['M11', 'M12', 'M13', 'M14', 'M15', 'M16', 'M17', 'M18', 'M19', 'M20'],
@@ -84,20 +85,17 @@ sg.calculate_gmm_annotations(adata,
                             k_neighbors=6
                             )
 print(f"Time: {time.time() - start_time:.5f} s")
-print(adata.uns['module_stats'])
+print(adata.uns['intersection_module_stats'])
 
 
 # %%
-adata.uns['module_stats'].to_csv("data/module_stats.csv", index=False)
-
-# %%
-sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "", frameon = False, color="M01_anno", show=True)
+sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "", frameon = False, color="intersection_M001_anno", show=True)
 
 # %%
 # 平滑注释
 start_time = time.time()
 sg.smooth_annotations(adata, 
-                        ggm_key='ggm',
+                        ggm_key='intersection',
                         #modules_used=None,
                         #modules_used=['M01', 'M02', 'M03', 'M04', 'M05', 'M06', 'M07', 'M08', 'M09', 'M10'],
                         #modules_used=['M11', 'M12', 'M13', 'M14', 'M15', 'M16', 'M17', 'M18', 'M19', 'M20'],
@@ -110,11 +108,7 @@ sg.smooth_annotations(adata,
 print(f"Time: {time.time() - start_time:.5f} s")    
 
 # %%
-sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "", frameon = False, color="M01_anno_smooth", show=True)
-
-
-# %%
-adata.uns['module_stats'].to_csv("data/module_stats.csv", index=False)
+sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "", frameon = False, color="intersection_M001_anno_smooth", show=True)
 
 
 # %%
@@ -124,155 +118,150 @@ import pandas as pd
 import numpy as np
 
 def classify_modules(adata, 
-                     ref_cluster_key=None,
+                     ggm_key='ggm',
+                     ref_anno=None,
                      ref_cluster_method='leiden', 
                      ref_cluster_resolution=1.0, 
                      skew_threshold=2.0,
                      top1pct_threshold=2.0,
                      Moran_I_threshold=0.2,
-                     cluster_similarity_threshold=0.3,
-                     jaccard_threshold=0.6):
+                     min_dominant_cluster_fraction=0.3,
+                     anno_overlap_threshold=0.6):
     """
-    根据模块统计和注释信息，对空间转录组模块进行分类筛选，标记哪些模块可作为身份模块用于细胞注释整合。
+    Classify spatial specificity modules based on module statistics and annotation data.
     
-    参数：
-    - adata : AnnData对象，包含空间转录组数据以及模块分析结果（adata.uns['module_stats'], adata.obsm['module_expression'], adata.obs 中的模块注释列）。
-    - ref_cluster_key : str，聚类标签的键名（默认 None），如果提供则直接使用该列作为聚类标签。
-    - ref_cluster_method : {'leiden', 'louvain'} 或者 str，聚类算法名称（默认 'leiden'）。如果提供其他字符串且该字符串存在于 adata.obs，则直接使用该列作为聚类标签。
-    - ref_cluster_resolution : float，聚类分辨率参数（默认1.0），仅当使用 leiden 或 louvain 算法时有效。
-    - jaccard_threshold : float，判定“注释相似模块”的 Jaccard 重叠阈值（默认0.6）。
+    This function uses module-level statistics (stored in adata.uns[mod_stats_key]),
+    module expression (adata.obsm['module_expression']), and annotation columns (e.g., "M01_anno")
+    to determine which modules serve as robust markers for cell identity.
     
-    执行后将在 adata.uns['module_filtering'] 保存结果 DataFrame，
-    每行包含 module_id, is_identity, type_tag, reason 四个字段，
-    同时在 adata.uns['module_stats'] 对应模块增加 is_identity 和 type_tag 字段。
+    Parameters:
+      adata : AnnData object containing spatial transcriptomics data along with:
+              - Module statistics in adata.uns[mod_stats_key]
+              - Module expression matrix in adata.obsm['module_expression']
+              - Module annotation columns in adata.obs (e.g., "M01_anno")
+      ggm_key : str, key in adata.uns for the GGM object.
+      ref_anno : str, key in adata.obs for reference cluster labels; if provided, this column is used.
+      ref_cluster_method : str, clustering method to use if ref_anno is not provided (e.g., 'leiden' or 'louvain').
+      ref_cluster_resolution : float, resolution parameter for clustering.
+      skew_threshold : float, threshold for skewness to flag modules with ubiquitous expression.
+      top1pct_threshold : float, threshold for the top 1% expression ratio to flag modules with ubiquitous expression.
+      Moran_I_threshold : float, threshold for positive Moran's I to flag diffuse (weakly spatial) modules.
+      min_dominant_cluster_fraction : float, the minimum fraction of a module's annotated cells that must be concentrated 
+                                      in one reference cluster to avoid being flagged as mixed-regional.
+      anno_overlap_threshold : float, the Jaccard index threshold above which two modules are considered redundant.
+       
+    The function updates adata.uns['module_filtering'] with a DataFrame containing:
+      - module_id: Module identifier.
+      - is_identity: Boolean flag indicating whether the module is suitable as a cell identity marker.
+      - type_tag: Category tag, one of:
+          * "cellular_activity_module"
+          * "ubiquitous_module"
+          * "diffuse_module"
+          * "mixed_regional_module"
+          * "redundant_module"
+          * "cell_identity_module"
+      - information: A brief explanation for exclusion/inclusion.
+      
+    Also, adata.uns[mod_stats_key] is updated with 'is_identity' and 'type_tag' for each module.
+    
     """
-    # 提取模块统计信息表
-    module_stats = adata.uns.get('module_stats')
+    if ggm_key not in adata.uns['ggm_keys']:
+        raise ValueError(f"{ggm_key} not found in adata.uns['ggm_keys']")
+    mod_stats_key = adata.uns['ggm_keys'][ggm_key]['module_stats']
+    mod_filtering_key = adata.uns['ggm_keys'][ggm_key]['module_filtering']
+    # Retrieve module statistics
+    module_stats = adata.uns.get(mod_stats_key)
     if module_stats is None:
-        raise ValueError("adata.uns['module_stats'] 未找到模块统计信息")
-    # 将 module_stats 转为 DataFrame（如果不是的话）
-    if isinstance(module_stats, pd.DataFrame):
-        mod_stats_df = module_stats.copy()
-    else:
-        mod_stats_df = pd.DataFrame(module_stats)
-        
-    # 检查是否存在 GO 注释信息（top_go_terms 列）
+        raise ValueError("Module statistics not found in adata.uns[mod_stats_key]")
+    mod_stats_df = module_stats if isinstance(module_stats, pd.DataFrame) else pd.DataFrame(module_stats)
+    
+    # Check if GO annotation info exists (i.e. 'top_go_terms' column)
     has_go_info = "top_go_terms" in mod_stats_df.columns
 
-    # 检查模块ID列表
+    # Get list of module IDs
     module_ids = mod_stats_df['module_id'].tolist()
     
-    # 1. 生成/获取空间聚类标签
-    if ref_cluster_key is None:
-        if ref_cluster_method in adata.obs.columns:
-            # 如果指定的 ref_cluster_method 是现成的 obs 列
-            ref_cluster_key = ref_cluster_method
+    # (1) Obtain spatial clustering labels
+    if ref_anno is None:
+        if ref_cluster_method.lower() == 'leiden':
+            ref_anno = 'tmp_leiden_for_filtering'
+            sc.tl.leiden(adata, resolution=ref_cluster_resolution, key_added=ref_anno)
+        elif ref_cluster_method.lower() == 'louvain':
+            ref_anno = 'tmp_louvain_for_filtering'
+            sc.tl.louvain(adata, resolution=ref_cluster_resolution, key_added=ref_anno)
         else:
-            # 否则使用 leiden 或 louvain 算法进行聚类
-            if ref_cluster_method.lower() == 'leiden':
-                ref_cluster_key = 'tmp_leiden_for_filtering'
-                sc.tl.leiden(adata, resolution=ref_cluster_resolution, key_added=ref_cluster_key)
-            elif ref_cluster_method.lower() == 'louvain':
-                ref_cluster_key = 'tmp_louvain_for_filtering'
-                sc.tl.louvain(adata, resolution=ref_cluster_resolution, key_added=ref_cluster_key)
-            else:
-                ref_cluster_key = None
+            print(f"Unknown clustering method '{ref_cluster_method}'; skipping cluster assignment")
+            ref_anno = None
     else:
-        if ref_cluster_key not in adata.obs.columns:
-            raise ValueError(f"聚类标签列 {ref_cluster_key} 不存在于 adata.obs")
+        if ref_anno not in adata.obs.columns:
+            raise ValueError(f"Cluster label column '{ref_anno}' not found in adata.obs")
         
-    # 获取每个模块对应的细胞集合（索引集合）以及细胞计数
-    module_cells = {}  # 模块 -> 细胞索引集合
-    module_cell_counts = {}  # 模块 -> 细胞数
+    # (2) For each module, get the set of annotated cell indices and counts
+    module_cells = {}
+    module_cell_counts = {}
     for module_id in module_ids:
         col = f"{module_id}_anno"
         if col not in adata.obs.columns:
             module_cells[module_id] = set()
             module_cell_counts[module_id] = 0
         else:
-            # 选择该列非空的细胞索引作为模块细胞集合
             cells = adata.obs[~adata.obs[col].isna()].index
             module_cells[module_id] = set(cells)
             module_cell_counts[module_id] = len(cells)
-    # 按细胞数目降序排序模块列表
+    # Sort modules by number of annotated cells (descending)
     modules_sorted = sorted(module_ids, key=lambda m: module_cell_counts.get(m, 0), reverse=True)
     
-    # 定义 Activity 模块判定的 GO 关键词集合
-    activity_keywords = ["proliferation", "cell cycle", "cell division",
-                         "DNA replication", "RNA processing", "translation",
-                         "metabolic process", "biosynthetic process", "ribosome",
-                         "chromosome segregation", "spindle", "mitotic", "cell growth"]
-    activity_keywords = [kw.lower() for kw in activity_keywords]
+    # Define GO keywords indicative of general cellular activity
+    activity_keywords = [kw.lower() for kw in [
+        "proliferation", "cell cycle", "cell division", "DNA replication", 
+        "RNA processing", "translation", "metabolic process", "biosynthetic process", 
+        "ribosome", "chromosome segregation", "spindle", "mitotic", "cell growth"
+    ]]
     
-    # 初始化结果列表
-    results = []  # 每个元素是字典 {module_id, is_identity, type_tag, reason}
+    # Initialize result dictionaries
+    results = []  # Each record: {module_id, is_identity, type_tag, reason, information}
     is_identity_dict = {}
     type_tag_dict = {}
     reason_dict = {}
     
-    # 2. 第一遍遍历：应用判定规则1-4
+    # (3) First pass: apply filters sequentially
     for mod in modules_sorted:
-        # 获取模块的统计指标：偏度、top1pct_ratio、Moran 指数
+        # Retrieve module stats: skew, top1pct_ratio, and positive Moran's I
         if 'skew' in mod_stats_df.columns:
-            skewness = float(mod_stats_df.loc[mod_stats_df['module_id'] == mod, 'skew'].iloc[0]) \
-                       if 'module_id' in mod_stats_df.columns else float(mod_stats_df.loc[mod, 'skew'])
+            skewness = float(mod_stats_df.loc[mod_stats_df['module_id'] == mod, 'skew'].iloc[0])
         else:
             skewness = None
         if 'top1pct_ratio' in mod_stats_df.columns:
-            top1pct = float(mod_stats_df.loc[mod_stats_df['module_id'] == mod, 'top1pct_ratio'].iloc[0]) \
-                      if 'module_id' in mod_stats_df.columns else float(mod_stats_df.loc[mod, 'top1pct_ratio'])
+            top1pct = float(mod_stats_df.loc[mod_stats_df['module_id'] == mod, 'top1pct_ratio'].iloc[0])
         else:
             top1pct = None
         if 'positive_moran_I' in mod_stats_df.columns:
-            moranI = float(mod_stats_df.loc[mod_stats_df['module_id'] == mod, 'positive_moran_I'].iloc[0]) \
-                     if 'module_id' in mod_stats_df.columns else float(mod_stats_df.loc[mod, 'positive_moran_I'])
+            moranI = float(mod_stats_df.loc[mod_stats_df['module_id'] == mod, 'positive_moran_I'].iloc[0])
         else:
             moranI = None
         
-        # 先假定模块为身份模块
+        # Default: module is considered a cell identity marker
         is_identity = True
-        type_tag = 'identity_module'
-        reason = ''
+        type_tag = 'cell_identity_module'
+        reason = "Passed all filters"
         
-        # (1) Activity 模块判定：利用 GO 注释信息
+        # (a) Exclude modules with GO terms indicating general cellular activity.
         is_activity = False
         if has_go_info:
-            # 如果 mod_stats_df 中存在 top_go_terms 列，则直接读取
             go_terms_str = mod_stats_df.loc[mod_stats_df['module_id'] == mod, 'top_go_terms']
             if not go_terms_str.empty:
                 go_terms_str = go_terms_str.iloc[0]
                 if pd.notnull(go_terms_str):
-                    # 按 “ || ” 拆分，得到 GO 术语列表
                     terms = [t.strip().lower() for t in go_terms_str.split("||")]
                     for term in terms:
                         if any(kw in term for kw in activity_keywords):
-                            is_activity = True
-                            break
-        else:
-            # 若没有 top_go_terms 信息，尝试从 adata.uns['go_enrichment'] 获取
-            if hasattr(adata, 'uns') and 'go_enrichment' in getattr(adata, 'uns', {}):
-                go_info = adata.uns['go_enrichment']
-            elif 'ggm' in adata.uns and hasattr(adata.uns['ggm'], 'go_enrichment'):
-                go_info = adata.uns['ggm'].go_enrichment
-            else:
-                go_info = None
-            if go_info is not None:
-                terms = None
-                if isinstance(go_info, dict):
-                    terms = go_info.get(mod)
-                elif isinstance(go_info, pd.DataFrame):
-                    if 'module_id' in go_info.columns:
-                        terms = go_info[go_info['module_id'] == mod]
-                        terms = [str(t).lower() for t in terms['term']] if 'term' in go_info.columns else None
-                if terms:
-                    for term in terms:
-                        if any(kw in term.lower() for kw in activity_keywords):
+                            go_terms_str = term
                             is_activity = True
                             break
         if is_activity:
             is_identity = False
-            type_tag = 'activity_module'
-            reason = '模块 GO 注释显示与细胞活动相关（增殖/代谢等），非特定细胞类型标志'
+            type_tag = 'cellular_activity_module'
+            reason = f'Excluded: GO enrichment indicates cellular activity ({go_terms_str})'
             is_identity_dict[mod] = is_identity
             type_tag_dict[mod] = type_tag
             reason_dict[mod] = reason
@@ -280,16 +269,16 @@ def classify_modules(adata,
                 'module_id': mod,
                 'is_identity': is_identity,
                 'type_tag': type_tag,
-                'reason': reason
+                'information': reason
             })
-            continue  # 直接跳到下一个模块
+            continue
         
-        # (2) 空间泛滥模块判定
+        # (b) Exclude modules with ubiquitous expression (low skew and low top1pct_ratio)
         if skewness is not None and top1pct is not None:
             if skewness < skew_threshold and top1pct < top1pct_threshold:
                 is_identity = False
-                type_tag = 'spatially_pervasive_module'
-                reason = '模块表达广泛分布于多数细胞（偏度和top1%细胞表达水平低）'
+                type_tag = 'ubiquitous_module'
+                reason = f'Excluded: Skew ({skewness:.2f}) and top1pct_ratio ({top1pct:.2f}) below thresholds'
         if not is_identity:
             is_identity_dict[mod] = is_identity
             type_tag_dict[mod] = type_tag
@@ -298,16 +287,16 @@ def classify_modules(adata,
                 'module_id': mod,
                 'is_identity': is_identity,
                 'type_tag': type_tag,
-                'reason': reason
+                'information': reason
             })
             continue
         
-        # (3) 弱空间自相关模块判定
+        # (c) Exclude modules with diffuse spatial patterns (weak spatial autocorrelation)
         if moranI is not None:
             if moranI < Moran_I_threshold and moranI > 0:
                 is_identity = False
-                type_tag = 'weak_spatial_module'
-                reason = '模块 Moran’s I 指数低，空间聚集性弱'
+                type_tag = 'diffuse_module'
+                reason = f'Excluded: Positive Moran’s I ({moranI:.2f}) below threshold'
         if not is_identity:
             is_identity_dict[mod] = is_identity
             type_tag_dict[mod] = type_tag
@@ -316,23 +305,23 @@ def classify_modules(adata,
                 'module_id': mod,
                 'is_identity': is_identity,
                 'type_tag': type_tag,
-                'reason': reason
+                'information': reason
             })
             continue
         
-        # (4) 跨结构域表达模块判定
-        if ref_cluster_key is not None and module_cell_counts.get(mod, 0) > 0:
+        # (d) Exclude modules that are not concentrated in a single spatial domain.
+        if ref_anno is not None and module_cell_counts.get(mod, 0) > 0:
             cells = module_cells.get(mod, set())
-            clusters = adata.obs.loc[list(cells), ref_cluster_key] if ref_cluster_key in adata.obs.columns else None
+            clusters = adata.obs.loc[list(cells), ref_anno] if ref_anno in adata.obs.columns else None
             if clusters is not None:
                 cluster_counts = clusters.value_counts()
                 if len(cluster_counts) > 1:
                     total = cluster_counts.sum()
-                    max_frac = cluster_counts.max() / total
-                    if max_frac < cluster_similarity_threshold:
+                    dominant_fraction = cluster_counts.max() / total
+                    if dominant_fraction < min_dominant_cluster_fraction:
                         is_identity = False
-                        type_tag = 'cross_structure_module'
-                        reason = '模块细胞分布于多个空间聚类，未集中在单一结构域'
+                        type_tag = 'mixed_regional_module'
+                        reason = f'Excluded: Dominant cluster fraction ({dominant_fraction:.2f}) below {min_dominant_cluster_fraction}'
         if not is_identity:
             is_identity_dict[mod] = is_identity
             type_tag_dict[mod] = type_tag
@@ -341,14 +330,14 @@ def classify_modules(adata,
                 'module_id': mod,
                 'is_identity': is_identity,
                 'type_tag': type_tag,
-                'reason': reason
+                'information': reason
             })
             continue
         
-        # 如果通过所有筛选，则标记为身份模块
+        # If the module passes all filters, mark it as a cell identity module.
         is_identity = True
-        type_tag = 'identity_module'
-        reason = '通过所有筛选条件，作为细胞类型标志模块'
+        type_tag = 'cell_identity_module'
+        reason = "Included: Passed all filters"
         is_identity_dict[mod] = is_identity
         type_tag_dict[mod] = type_tag
         reason_dict[mod] = reason
@@ -356,10 +345,12 @@ def classify_modules(adata,
             'module_id': mod,
             'is_identity': is_identity,
             'type_tag': type_tag,
-            'reason': reason
+            'information': reason
         })
     
-    # 3. 第二遍遍历：注释相似模块判定
+    # (4) Second pass: Identify redundant modules by pairwise comparison.
+    # For modules with high annotation overlap (Jaccard index >= anno_overlap_threshold),
+    # the module with the lower effect_size is considered less discriminative and is marked as redundant.
     identity_modules = [mod for mod in modules_sorted if is_identity_dict.get(mod, False)]
     identity_modules = sorted(identity_modules)
     marked_as_similar = set()
@@ -376,8 +367,8 @@ def classify_modules(adata,
             if union == 0:
                 continue
             jaccard = inter / union
-            if jaccard >= jaccard_threshold:
-                # 比较两个模块的效应量决定保留哪一个（效应量越大，表明模块区分度越好）
+            if jaccard >= anno_overlap_threshold:
+                # Use effect_size first to decide which module to keep.
                 keep_mod = modA
                 drop_mod = modB
                 effect_available = False
@@ -389,50 +380,57 @@ def classify_modules(adata,
                 except Exception:
                     effA = effB = None
                 if effect_available:
-                    # 如果两个模块均有 effect_size，则较小者被认为效果较差，作为冗余模块
+                    # The module with the smaller effect_size (lower discriminative power) is dropped.
                     if effA < effB:
                         keep_mod, drop_mod = modB, modA
                     else:
                         keep_mod, drop_mod = modA, modB
+                    info_str = (f'Excluded: Jaccard index {jaccard:.2f} >= {anno_overlap_threshold} and ' 
+                                f'lower effect_size ({min(effA, effB):.2f})')
                 else:
-                    # 最后使用偏度和 top1pct_ratio 作为评分
+                    # Fallback: use sum of skew and top1pct_ratio as a score.
                     scoreA = 0
                     scoreB = 0
                     if modA in type_tag_dict and modB in type_tag_dict:
-                        scoreA = (float(mod_stats_df.loc[mod_stats_df['module_id'] == modA, 'skew'].iloc[0]) if 'skew' in mod_stats_df.columns else 0) + \
-                                (float(mod_stats_df.loc[mod_stats_df['module_id'] == modA, 'top1pct_ratio'].iloc[0]) if 'top1pct_ratio' in mod_stats_df.columns else 0)
-                        scoreB = (float(mod_stats_df.loc[mod_stats_df['module_id'] == modB, 'skew'].iloc[0]) if 'skew' in mod_stats_df.columns else 0) + \
-                                (float(mod_stats_df.loc[mod_stats_df['module_id'] == modB, 'top1pct_ratio'].iloc[0]) if 'top1pct_ratio' in mod_stats_df.columns else 0)
+                        scoreA = (float(mod_stats_df.loc[mod_stats_df['module_id'] == modA, 'skew'].iloc[0]) 
+                                  if 'skew' in mod_stats_df.columns else 0) + \
+                                 (float(mod_stats_df.loc[mod_stats_df['module_id'] == modA, 'top1pct_ratio'].iloc[0]) 
+                                  if 'top1pct_ratio' in mod_stats_df.columns else 0)
+                        scoreB = (float(mod_stats_df.loc[mod_stats_df['module_id'] == modB, 'skew'].iloc[0]) 
+                                  if 'skew' in mod_stats_df.columns else 0) + \
+                                 (float(mod_stats_df.loc[mod_stats_df['module_id'] == modB, 'top1pct_ratio'].iloc[0]) 
+                                  if 'top1pct_ratio' in mod_stats_df.columns else 0)
                     if scoreB > scoreA:
                         keep_mod, drop_mod = modB, modA
+                    info_str = f'Excluded: Jaccard index {jaccard:.2f} >= {anno_overlap_threshold}; fallback score used'
                 is_identity_dict[drop_mod] = False
-                type_tag_dict[drop_mod] = 'annotation_similar_module'
-                reason_dict[drop_mod] = f'与模块 {keep_mod} 注释重叠，高度相似'
+                type_tag_dict[drop_mod] = 'redundant_module'
+                reason_dict[drop_mod] = f'Overlap with module {keep_mod}'
                 marked_as_similar.add(drop_mod)
                 for rec in results:
                     if rec['module_id'] == drop_mod:
                         rec['is_identity'] = False
-                        rec['type_tag'] = 'annotation_similar_module'
-                        rec['reason'] = reason_dict[drop_mod]
+                        rec['type_tag'] = 'redundant_module'
+                        rec['information'] = info_str
                         break
                 else:
                     results.append({
                         'module_id': drop_mod,
                         'is_identity': False,
-                        'type_tag': 'annotation_similar_module',
-                        'reason': reason_dict[drop_mod]
+                        'type_tag': 'redundant_module',
+                        'information': info_str
                     })
-    # 4. 整理输出结果为 DataFrame
+    # (5) Assemble final results DataFrame
     result_df = pd.DataFrame(results)
     if 'module_id' in result_df.columns:
         result_df = result_df.sort_values(by='module_id').reset_index(drop=True)
-    adata.uns['module_filtering'] = result_df
+    adata.uns[mod_filtering_key] = result_df
     
-    # 5. 更新 adata.uns['module_stats'] 中的 is_identity 和 type_tag 列
+    # Update adata.uns[mod_stats_key] with is_identity and type_tag
     if 'module_id' in mod_stats_df.columns:
         mod_stats_df['is_identity'] = mod_stats_df['module_id'].map(is_identity_dict).fillna(False)
         mod_stats_df['type_tag'] = mod_stats_df['module_id'].map(type_tag_dict).fillna('filtered_module')
-        adata.uns['module_stats'] = mod_stats_df
+        adata.uns[mod_stats_key] = mod_stats_df
     else:
         new_cols = []
         for idx in mod_stats_df.index:
@@ -445,46 +443,40 @@ def classify_modules(adata,
                 new_cols.append((False, 'filtered_module'))
         mod_stats_df['is_identity'] = [col[0] for col in new_cols]
         mod_stats_df['type_tag'] = [col[1] for col in new_cols]
-        adata.uns['module_stats'] = mod_stats_df
-    
-    return result_df
-
-
-
-
-# %%
-
-
-
-
-
-
-
+        adata.uns[mod_stats_key] = mod_stats_df
 
 
 # %%
 # 测试
-class_info = classify_modules(adata, 
-                              ref_cluster_key='graph_cluster',
-                              #ref_cluster_method='leiden', 
-                              #ref_cluster_method='none',  
-                              ref_cluster_resolution=0.1, 
-                              jaccard_threshold=0.3)
+sg.classify_modules(adata, 
+                 ggm_key='intersection',
+                 #ref_anno='graph_cluster',
+                 ref_cluster_method='leiden', 
+                 #ref_cluster_method='none',  
+                 ref_cluster_resolution=0.5, 
+                 skew_threshold=2,
+                 top1pct_threshold=2,
+                 Moran_I_threshold=0.6,
+                 min_dominant_cluster_fraction=0.3,
+                 anno_overlap_threshold=0.4)
 
 # %%
-adata.uns['module_filtering'].to_csv("data/module_filtering.csv", index=False)
+adata.uns['intersection_module_stats']
 
 # %%
-adata.uns['module_filtering'][adata.uns['module_filtering']['is_identity'] == True]['module_id']
+adata.uns['intersection_module_filtering']['type_tag'].value_counts()
+
+# %%
+adata.uns['intersection_module_filtering'][adata.uns['intersection_module_filtering']['is_identity'] == True]['module_id']
 
 # %%
 start_time = time.time()
 sg.integrate_annotations(adata,
-                        ggm_key='ggm',
-                        modules_used=adata.uns['module_filtering'][adata.uns['module_filtering']['is_identity'] == True]['module_id'],
+                        ggm_key='intersection',
+                        modules_used=adata.uns['intersection_module_filtering'][adata.uns['intersection_module_filtering']['is_identity'] == True]['module_id'],
                         #modules_used=None,
-                        #modules_used=adata.uns['module_stats'][adata.uns['module_stats']['module_moran_I'] > 0.7]['module_id'],
-                        #modules_preferred=adata.uns['module_stats'][adata.uns['module_stats']['module_moran_I'] > 0.9]['module_id'],
+                        #modules_used=adata.uns[mod_stats_key][adata.uns[mod_stats_key]['module_moran_I'] > 0.7]['module_id'],
+                        #modules_preferred=adata.uns[mod_stats_key][adata.uns[mod_stats_key]['module_moran_I'] > 0.9]['module_id'],
                         #modules_used = adata.uns['module_info']['module_id'].unique()[0:20], 
                         #modules_used=['M01', 'M02', 'M03', 'M04', 'M05', 'M06', 'M07', 'M08', 'M09', 'M10'],
                         #modules_used=['M11', 'M12', 'M13', 'M14', 'M15', 'M16', 'M17', 'M18', 'M19', 'M20'],
@@ -494,7 +486,7 @@ sg.integrate_annotations(adata,
                         use_smooth=True,
                         embedding_key='spatial',
                         k_neighbors=24,
-                        neighbor_similarity_ratio=0.9,
+                        neighbor_similarity_ratio=0,
                         )
 print(f"Time: {time.time() - start_time:.5f} s")
 
