@@ -8,6 +8,8 @@ from sklearn.mixture import GaussianMixture
 from sklearn.neighbors import NearestNeighbors
 import itertools
 import warnings
+from scipy.spatial.distance import pdist
+from scipy.stats import skew
 
 
 # construct_spatial_weights 
@@ -69,12 +71,17 @@ def compute_moran(x, W):
 
 # calculate_module_expression 
 def calculate_module_expression(adata, 
-                                ggm_obj, ggm_key = 'ggm',
-                                top_genes=30, weighted=True,
-                                calculate_moran=False, embedding_key='spatial',k_neighbors=None):
+                                ggm_obj, 
+                                ggm_key = 'ggm',
+                                top_genes=30, 
+                                weighted=True,
+                                calculate_moran=False, 
+                                embedding_key='spatial',
+                                k_neighbors=6,
+                                add_go_anno=3):
     """
     Calculate and store module expression in adata based on input modules.
-
+    
     Parameters:
         adata: AnnData object containing gene expression data.
         ggm_obj: GGM object containing module information or a DataFrame with columns 'module_id', 'gene', 'degree', and 'rank'.
@@ -83,17 +90,18 @@ def calculate_module_expression(adata,
         top_genes: int, Number of top genes to use for module expression calculation.
         weighted: bool, Whether to calculate weighted average expression based on gene degree.
         calculate_moran: bool, if True, compute global Moran's I for each gene in module_info.
-        embedding_key: str, key in adata.obsm for spatial coordinates. (or other coordinates for SingleCellExperiment)
-        k_neighbors: int, number of nearest neighbors for constructing spatial weights.(or other coordinates for SingleCellExperiment)
-    
-
+        embedding_key: str, key in adata.obsm for spatial coordinates.
+        k_neighbors: int, number of nearest neighbors for constructing spatial weights.
+        add_go_anno: int, default as 3. If the value is greater than 0 (and between 0 and 10), 
+                     for each module, extract the top GO terms from ggm.go_enrichment and integrate them into module_df.
     """
+    # get module information
     if isinstance(ggm_obj, pd.DataFrame):
-        module_df = ggm_obj
+        module_df = ggm_obj.copy()
     else:
         if ggm_obj.modules is None:
             raise ValueError("No modules found in the GGM object. Please run `find_modules` first.")
-        module_df = ggm_obj.modules
+        module_df = ggm_obj.modules.copy()
     
     if calculate_moran and embedding_key not in adata.obsm:
         raise ValueError(f"{embedding_key} coordinates not found in adata.obsm.")
@@ -111,11 +119,10 @@ def calculate_module_expression(adata,
     # 2. Calculate the weights of each gene in the input module
     if weighted:
         print("\nCalculating gene weights based on degree...")
-        module_df['weight']  = module_df.groupby('module_id')['degree'].transform( lambda x: x / x.sum() )
-        #module_df['weight']  = module_df.groupby('module_id')['degree'].transform( lambda x: x / x.sum() * x.size )
+        module_df['weight']  = module_df.groupby('module_id')['degree'].transform(lambda x: x / x.sum())
     else:
         print("\nUsing unweighted gene expression...")
-        module_df['weight'] = module_df.groupby('module_id')['degree'].transform( lambda x: 1 / x.size ) 
+        module_df['weight'] = module_df.groupby('module_id')['degree'].transform(lambda x: 1 / x.size) 
     
     # 3. Filter the input modules to keep only genes that exist in adata
     genes_in_adata = adata.var_names
@@ -137,98 +144,122 @@ def calculate_module_expression(adata,
         col_prefix = f"{ggm_key}_"
     
     module_df['module_id'] = col_prefix + module_df['module_id'].astype(str)
+    
+    # (optional) Add GO annotation to module information
+    if add_go_anno:
+        try:
+            add_go_anno = int(add_go_anno)
+        except Exception as e:
+            raise ValueError("Parameter add_go_anno must be an integer between 0 and 10.") from e
+        if add_go_anno < 0 or add_go_anno > 10:
+            raise ValueError("Parameter add_go_anno must be between 0 and 10.")
+        for i in range(1, add_go_anno+1):
+            module_df[f"top_{i}_go_term"] = None
+        
+        # get GO enrichment information
+        go_enrichment_df = None
+        if isinstance(ggm_obj, pd.DataFrame):
+            print("Warning: ggm_obj is a DataFrame; no GO enrichment information available.")
+        else:
+            if hasattr(ggm_obj, 'go_enrichment'):
+                go_enrichment_df = ggm_obj.go_enrichment
+            else:
+                print("Warning: ggm_obj does not have go_enrichment attribute; skipping GO annotation integration.")
+        
+        if go_enrichment_df is not None:
+            # add prefix to module_id column
+            if col_prefix and 'module_id' in go_enrichment_df.columns:
+                go_enrichment_df['module_id'] = col_prefix + go_enrichment_df['module_id'].astype(str)
+            
+            # find top GO terms for each module
+            unique_modules = go_enrichment_df['module_id'].unique()
+            for mod in unique_modules:
+                module_gene_set = set(module_df.loc[module_df['module_id'] == mod, 'gene'])
+                mod_go_df = go_enrichment_df[go_enrichment_df['module_id'] == mod].sort_values(by='go_rank')
+                for i in range(1, add_go_anno+1):
+                    if i-1 < len(mod_go_df):
+                        row = mod_go_df.iloc[i-1]
+                        genes_str = row['genes_with_go_in_module']
+                        if isinstance(genes_str, str):
+                            go_genes = set(genes_str.split('/'))
+                        else:
+                            go_genes = set()
+                        if len(go_genes & module_gene_set) > 0:
+                            go_term_val = row['go_term']
+                        else:
+                            go_term_val = None
+                        module_df.loc[module_df['module_id'] == mod, f"top_{i}_go_term"] = go_term_val
+                    else:
+                        module_df.loc[module_df['module_id'] == mod, f"top_{i}_go_term"] = None
 
     # 5. Make a mapping from gene to index in adata and from module ID to index in the transformation matrix
-    # Create a mapping from gene to index in adata
     gene_to_index = {gene: i for i, gene in enumerate(adata.var_names)}
-    # Create a mapping from module ID to index in the transformation matrix
     module_ids = module_df['module_id'].unique()
     module_to_index = {module: i for i, module in enumerate(module_ids)}
     
-    # remove all existing module information in adata.obs
-    for col in adata.obs.columns:
-        if col.startswith(f'{col_prefix}M') and col.endswith('_exp'):
-            adata.obs.drop(columns=col, inplace=True)
-        if col.startswith(f'{col_prefix}M') and col.endswith('_anno'):
-            adata.obs.drop(columns=col, inplace=True)
-        if col.startswith(f'{col_prefix}M') and col.endswith('_anno_smooth'):
+    # Remove existing module-related columns in adata.obs
+    for col in list(adata.obs.columns):
+        if col.startswith(f'{col_prefix}M') and (col.endswith('_exp') or col.endswith('_anno') or col.endswith('_anno_smooth')):
             adata.obs.drop(columns=col, inplace=True)
 
-    
     # 6. Construct a transformation matrix
-    # Initialize the transformation matrix
     n_genes = len(adata.var_names)
     n_modules = len(module_ids)
     transformation_matrix = sp.lil_matrix((n_genes, n_modules), dtype=np.float32)
-
-    # Fill the transformation matrix with weights
+    
     for _, row in module_df.iterrows():
         gene_idx = gene_to_index[row['gene']]
         module_idx = module_to_index[row['module_id']]
         transformation_matrix[gene_idx, module_idx] = row['weight']
-
-    # Convert to CSR format for efficient multiplication
+    
     transformation_matrix = transformation_matrix.tocsr()
-
+    
     # 7. Multiply adata by the transformation matrix to obtain the weighted-average-expression matrix
     weighted_expression = adata.X.dot(transformation_matrix)
-
-    # Convert to dense array if necessary
     if sp.issparse(weighted_expression):
         weighted_expression = weighted_expression.toarray()
     
-    # 8. Calculate the Moran's I for each gene in module_info
+    # 8. Calculate the Moran's I for each gene in module_info (如需计算)
     if calculate_moran:
         coords = adata.obsm[embedding_key]
         W = construct_spatial_weights(coords, k_neighbors=k_neighbors)
-        # Calculate Moran's I for each module in module_info
         print("Calculating Moran's I for modules in ggm...")
         module_moran = {}
         for mod in module_ids:
-            # Get the expression of the module
             mod_expr = weighted_expression[:, module_to_index[mod]]
             I_mod = compute_moran(mod_expr, W)
             module_moran[mod] = I_mod
-        # Calculate Moran's I for each gene in module_info
         print("Calculating Moran's I for genes in ggm...")
         moran_values = []
         for gene in module_df['gene']:
             i = gene_to_index[gene]
-            # Get the expression of the gene
             if sp.issparse(adata.X):
                 x_gene = adata.X[:, i].toarray().flatten()
             else:
                 x_gene = adata.X[:, i]
             I_gene = compute_moran(x_gene, W)
             moran_values.append(I_gene)
-        # Add the Moran's I values to the module information
         module_df['module_moran_I'] = module_df['module_id'].map(module_moran)
         module_df['gene_moran_I'] = moran_values        
 
-    # 9. Store module information in adata.uns['module_info']
+    # 9. Store module information in adata.uns
     print(f"Storing module information in adata.uns['{mod_info_key}']...")
     adata.uns[mod_info_key] = module_df.copy()
    
-    # 10. Store the weighted-average-expression in both obsm and obs of the original adata object
-    # Store in obsm (as a single matrix)
-    # Scale the weighted expression by standard scaling
+    # 10. Store the weighted-average-expression in both obsm and obs
     scaler = StandardScaler()
     adata.obsm[expr_key] = weighted_expression
     adata.obsm[expr_scaled_key] = scaler.fit_transform(weighted_expression)
     
-    # Create a DataFrame for the weighted expression
     weighted_expression_df = pd.DataFrame(
         weighted_expression,
         index=adata.obs_names,
         columns=[f'{mod}_exp' for mod in module_ids]
     )
-
-    # Store in obs (one column per module)
     obs_df = pd.concat([adata.obs, weighted_expression_df], axis=1)
     obs_df = obs_df.loc[:, ~obs_df.columns.duplicated(keep='last')]
     adata.obs = obs_df.copy()
     
-    # Store the keys info in adata.uns['ggm_keys']
     adata.uns['ggm_keys'][ggm_key] = {
         'module_info': mod_info_key,
         'module_stats': mod_stats_key,
@@ -239,7 +270,7 @@ def calculate_module_expression(adata,
     print(f"\nTotal {n_modules} modules' average expression calculated and stored in adata.obs and adata.obsm")
 
 
-# calculate_gmm_annotation
+# calculate_gmm_annotations
 def calculate_gmm_annotations(adata, 
                               ggm_key='ggm',
                               modules_used=None,
@@ -273,7 +304,8 @@ def calculate_gmm_annotations(adata,
         - components: List of dictionaries with keys 'component', 'mean', 'var', 'weight'.
         - main_component: Index of the main component.
         - error_info: Error message if status is 'failed'.
-
+        - top_go_terms: (新增) 如果检测到GO注释信息，则拼接每个模块在 adata.uns['module_info'] 中所有top_***_go_term 列的内容，以“ || ”分隔.
+    
     Parameters:
       adata: AnnData object.
       ggm_key: Key for the GGM object in adata.uns['ggm_keys'].
@@ -292,14 +324,6 @@ def calculate_gmm_annotations(adata,
       Updates adata.obs with annotation columns (categorical, with suffix '_anno'),
       and stores module-level statistics in adata.uns[mod_stats_key].
     """
-    import numpy as np
-    import pandas as pd
-    import scipy.sparse as sp
-    from sklearn.mixture import GaussianMixture
-    from sklearn.neighbors import NearestNeighbors
-    from scipy.spatial.distance import pdist
-    from scipy.stats import skew
-    import warnings
 
     # Retrieve keys from adata.uns['ggm_keys']
     ggm_keys = adata.uns.get('ggm_keys', {})
@@ -322,6 +346,9 @@ def calculate_gmm_annotations(adata,
         module_expr_matrix.columns = unique_mods
     
     # Determine modules to use
+    if modules_used is None and modules_excluded is None and mod_stats_key in adata.uns:
+       adata.uns.pop(mod_stats_key, None)
+
     if modules_used is None:
         modules_used = list(unique_mods)
     if modules_excluded is not None:
@@ -331,7 +358,7 @@ def calculate_gmm_annotations(adata,
         raise ValueError(f"Ensure that the input module IDs exist in adata.uns['{mod_info_key}']")
     
     # Remove existing annotation columns
-    for col in adata.obs.columns:
+    for col in list(adata.obs.columns):
         if col.endswith('_anno') and any(col.startswith(mid) for mid in valid_modules):
             adata.obs.drop(columns=col, inplace=True)
     
@@ -385,7 +412,8 @@ def calculate_gmm_annotations(adata,
             'positive_moran_I': np.nan,
             'negative_moran_I': np.nan,
             'skew': np.nan,
-            'top1pct_ratio': np.nan
+            'top1pct_ratio': np.nan,
+            'effect_size': np.nan
         }
         try:
             expr_values = module_expr_matrix[module_id].values
@@ -465,6 +493,13 @@ def calculate_gmm_annotations(adata,
                 stats['top1pct_ratio'] = top1_mean / overall_mean if overall_mean != 0 else np.nan
             else:
                 stats['top1pct_ratio'] = np.nan
+            # (F) Effect size: mean of positive cells - mean of negative cells
+            if len(positive_expr) > 0:
+                std_all = np.std(non_zero_expr)
+                neg_expr = non_zero_expr[anno_non_zero == 0]
+                stats['effect_size'] = float(np.mean(positive_expr) - np.mean(neg_expr)) / std_all if std_all != 0 else np.nan
+            else:
+                stats['effect_size'] = np.nan
             
         except Exception as e:
             stats.update({
@@ -479,7 +514,8 @@ def calculate_gmm_annotations(adata,
                 'positive_moran_I': np.nan,
                 'negative_moran_I': np.nan,
                 'skew': np.nan,
-                'top1pct_ratio': np.nan
+                'top1pct_ratio': np.nan,
+                'effect_size': np.nan
             })
             if enable_fallback and n_components > 2:
                 try:
@@ -519,7 +555,7 @@ def calculate_gmm_annotations(adata,
                         # Module-level Moran's I
                         fallback_mod_I = compute_moran(expr_values, W)
                         stats['module_moran_I'] = fallback_mod_I
-                        # Positive group (用掩蔽方法)
+                        # Positive group (using masked expression)
                         pos_expr_masked = np.where(fallback_annotation == 1, expr_values, 0)
                         stats['positive_moran_I'] = compute_moran(pos_expr_masked, W)
                         full_indices = np.where(non_zero_mask)[0]
@@ -542,6 +578,13 @@ def calculate_gmm_annotations(adata,
                             stats['top1pct_ratio'] = top1_mean / overall_mean if overall_mean != 0 else np.nan
                         else:
                             stats['top1pct_ratio'] = np.nan
+                        # Effect size
+                        if len(positive_expr) > 0:
+                            std_all = np.std(non_zero_expr)
+                            neg_expr = non_zero_expr[anno_non_zero == 0]
+                            stats['effect_size'] = float(np.mean(positive_expr) - np.mean(neg_expr)) / std_all if std_all != 0 else np.nan
+                        else:
+                            stats['effect_size'] = np.nan
                 except Exception as fallback_e:
                     stats['error_info'] += f"; Fallback failed: {str(fallback_e)}"
         finally:
@@ -552,7 +595,7 @@ def calculate_gmm_annotations(adata,
             stats['components'] = str(stats['components'])
             stats_records.append(stats)
     
-    # transform annotations to categorical and store in adata.obs
+    # Transform annotations to categorical and store in adata.obs
     annotations.columns = [f"{col}_anno" for col in annotations.columns]
     for col in annotations.columns:
         orig_name = col.replace("_anno", "")
@@ -560,14 +603,36 @@ def calculate_gmm_annotations(adata,
         annotations[col] = pd.Categorical(annotations[col])
     adata.obs = pd.concat([adata.obs, annotations], axis=1)
     
-    # add module-level statistics to adata.uns[mod_stats_key]
+    # Add GO annotations to module_stats_key 
     stats_records_df = pd.DataFrame(stats_records)
-    new_order = [
-    'module_id', 'status', 'anno_one', 'anno_zero', 'skew', 'top1pct_ratio', 
-    'module_moran_I', 'positive_moran_I', 'negative_moran_I', 'positive_mean_distance',
-    'n_components', 'final_components','threshold', 'components', 'main_component', 'error_info']
-    stats_records_df = stats_records_df[new_order]
-
+    module_info_df = adata.uns[mod_info_key]
+    go_cols = [col for col in module_info_df.columns if col.startswith("top_") and col.endswith("_go_term")]
+    if len(go_cols) > 0:
+        def concat_go_terms(mod_id):
+            rows = module_info_df[module_info_df['module_id'] == mod_id]
+            terms = []
+            for col in go_cols:
+                vals = rows[col].dropna().unique().tolist()
+                if vals:
+                    terms.extend(vals)
+            if terms:
+                return " || ".join(sorted(set(terms)))
+            else:
+                return None
+        stats_records_df["top_go_terms"] = stats_records_df["module_id"].apply(concat_go_terms)
+        # Set the order of columns in stats_records_df
+        new_order = [
+            'module_id', 'status', 'anno_one', 'anno_zero', 'top_go_terms', 'skew', 'top1pct_ratio', 
+            'module_moran_I', 'positive_moran_I', 'negative_moran_I', 'positive_mean_distance','effect_size',
+            'n_components', 'final_components','threshold', 'components', 'main_component', 'error_info']
+        stats_records_df = stats_records_df[new_order]
+    else:
+        new_order = [
+            'module_id', 'status', 'anno_one', 'anno_zero', 'skew', 'top1pct_ratio',
+            'module_moran_I', 'positive_moran_I', 'negative_moran_I', 'positive_mean_distance','effect_size',
+            'n_components', 'final_components','threshold', 'components', 'main_component', 'error_info']
+        stats_records_df = stats_records_df[new_order]
+    
     if mod_stats_key in adata.uns:
         existing_stats = adata.uns[mod_stats_key]
         for mid in stats_records_df['module_id'].unique():
