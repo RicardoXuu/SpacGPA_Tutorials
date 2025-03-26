@@ -56,7 +56,7 @@ import SpacGPA as sg
 # %%
 # # 读取 ggm
 # start_time = time.time()
-ggm = sg.load_ggm("data/ggm_gpu_32.h5")
+# ggm = sg.load_ggm("data/ggm_gpu_32.h5")
 # print(f"Read ggm: {time.time() - start_time:.5f} s")
 # # 读取联合分析的ggm
 # ggm_mulit_intersection = sg.load_ggm("data/ggm_mulit_intersection.h5")
@@ -134,10 +134,6 @@ ggm = sg.load_ggm("data/ggm_gpu_32.h5")
 # adata.write("data/CytAssist_FreshFrozen_Mouse_Brain_Rep2_ggm_anno_union_intersection.h5ad")
 # del adata, ggm, ggm_mulit_intersection, ggm_mulit_union
 # gc.collect()
-
-
-# %%
-print(ggm.go_enrichment)
 
 
 
@@ -250,7 +246,6 @@ for module in adata.uns['module_stats']['module_id'].unique():
 start_time = time.time()
 sg.integrate_annotations(adata,
                         ggm_key='ggm',
-                        modules_used = mod_assessment[mod_assessment['module_category'] == 'identity_module']['module_id'],
                         #modules_used=None,
                         #modules_used=adata.uns['module_stats'][adata.uns['module_stats']['module_moran_I'] > 0.7]['module_id'],
                         #modules_preferred=adata.uns['module_stats'][adata.uns['module_stats']['module_moran_I'] > 0.9]['module_id'],
