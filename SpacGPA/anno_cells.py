@@ -174,7 +174,7 @@ def calculate_module_expression(adata,
                 go_enrichment_df['module_id'] = col_prefix + go_enrichment_df['module_id'].astype(str)
             
             # find top GO terms for each module
-            unique_modules = go_enrichment_df['module_id'].unique()
+            unique_modules = module_df['module_id'].unique()
             for mod in unique_modules:
                 module_gene_set = set(module_df.loc[module_df['module_id'] == mod, 'gene'])
                 mod_go_df = go_enrichment_df[go_enrichment_df['module_id'] == mod].sort_values(by='go_rank')
@@ -186,13 +186,17 @@ def calculate_module_expression(adata,
                             go_genes = set(genes_str.split('/'))
                         else:
                             go_genes = set()
-                        if len(go_genes & module_gene_set) > 0:
+                        intersection = go_genes & module_gene_set
+                        other_genes = module_gene_set - intersection
+                        if intersection:
                             go_term_val = row['go_term']
+                            module_df.loc[module_df['gene'].isin(intersection), f"top_{i}_go_term"] = go_term_val
+                            if other_genes:
+                                module_df.loc[module_df['gene'].isin(other_genes), f"top_{i}_go_term"] = ''
                         else:
-                            go_term_val = None
-                        module_df.loc[module_df['module_id'] == mod, f"top_{i}_go_term"] = go_term_val
+                            module_df.loc[module_df['module_id'] == mod, f"top_{i}_go_term"] = ''
                     else:
-                        module_df.loc[module_df['module_id'] == mod, f"top_{i}_go_term"] = None
+                        module_df.loc[module_df['module_id'] == mod, f"top_{i}_go_term"] = ''
 
     # 5. Make a mapping from gene to index in adata and from module ID to index in the transformation matrix
     gene_to_index = {gene: i for i, gene in enumerate(adata.var_names)}
@@ -621,7 +625,7 @@ def calculate_gmm_annotations(adata,
             if terms:
                 return " || ".join(sorted(set(terms)))
             else:
-                return None
+                return ""
         stats_records_df["top_go_terms"] = stats_records_df["module_id"].apply(concat_go_terms)
         # Set the order of columns in stats_records_df
         new_order = [

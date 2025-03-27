@@ -92,10 +92,18 @@ start_time = time.time()
 sg.save_ggm(ggm, "data/MOSTA_E16.5_E1S1.ggm.h5")
 print(f"Time: {time.time() - start_time:.5f} s")
 
+# %%
+# 读取GGM
+start_time = time.time()
+ggm = sg.load_ggm("data/MOSTA_E16.5_E1S1.ggm.h5")
+print(f"Time: {time.time() - start_time:.5f} s")
+
+# %%
+ggm
 
 # %%
 # 重新读取数据
-del adata
+#del adata
 adata = sc.read_h5ad("/dta/ypxu/ST_GGM/VS_Code/ST_GGM_dev_1/data/MOSTA/E16.5_E1S1.MOSTA.h5ad")
 adata.var_names_make_unique()
 print(adata.X.shape)
@@ -109,14 +117,13 @@ sg.calculate_module_expression(adata,
                                ggm_key='ggm',
                                top_genes=30,
                                weighted=True,
-                               calculate_moran=True,
+                               calculate_moran=False,
                                embedding_key='spatial',
                                k_neighbors=6,
                                add_go_anno=5,
                                )
 print(f"Time: {time.time() - start_time:.5f} s")
 print(adata.uns['module_info'])
-
 
 # %%
 # 删除GGM对象，释放内存
@@ -144,15 +151,15 @@ sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotatio
 # %%
 # 保存可视化结果
 sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation",
-                save="/E16_5_E1S1_raw_cell_type_annotation.pdf",show=False)
+                save="/MOSTA_E16_5_E1S1_raw_cell_type_annotation.pdf",show=False)
 # sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="leiden_0.5_ggm", 
-#               save="/E16_5_E1S1_ggm_modules_leiden_0.5.pdf",show=False)
+#               save="/MOSTA_E16_5_E1S1_ggm_modules_leiden_0.5.pdf",show=False)
 # sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="leiden_1_ggm",
-#                 save="/E16_5_E1S1_ggm_modules_leiden_1.pdf",show=False)
+#                 save="/MOSTA_E16_5_E1S1_ggm_modules_leiden_1.pdf",show=False)
 # sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="louvan_0.5_ggm",
-#                 save="/E16_5_E1S1_ggm_modules_louvan_0.5.pdf",show=False)
+#                 save="/MOSTA_E16_5_E1S1_ggm_modules_louvan_0.5.pdf",show=False)
 # sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="louvan_1_ggm",
-#                 save="/E16_5_E1S1_ggm_modules_louvan_1.pdf",show=False)
+#                 save="/MOSTA_E16_5_E1S1_ggm_modules_louvan_1.pdf",show=False)
 
 
 
@@ -171,6 +178,10 @@ sg.calculate_gmm_annotations(adata,
                             random_state=42)
 print(f"Time: {time.time() - start_time:.5f} s")
 print(adata.uns['module_stats'])
+
+
+# %%
+adata.uns['module_stats'].to_csv("data/MOSTA_E16.5_E1S1_ggm_module_stats.csv")
 
 # %%
 # 平滑注释
@@ -194,12 +205,14 @@ sg.classify_modules(adata,
                     #ref_resolution=0.5,
                     skew_threshold=2,
                     top1pct_threshold=2,
-                    Moran_I_threshold=0.5,
+                    Moran_I_threshold=0.2,
                     min_dominant_cluster_fraction=0.2,
                     anno_overlap_threshold=0.4)
 
 # %%
 adata.uns['module_filtering']['type_tag'].value_counts()
+
+
 
 # %%
 # 合并注释（考虑空间坐标和模块表达值）
@@ -267,7 +280,7 @@ sg.integrate_annotations(adata,
 
 # %%
 # 保存注释结果
-adata.obs.to_csv("data/E16.5_E1S1.MOSTA.annotation.csv")
+adata.obs.to_csv("data/MOSTA_E16.5_E1S1_ggm_annotation.csv")
 
 
 # %%
@@ -283,34 +296,34 @@ sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="ggm_annot
 # %%
 # 保存可视化结果
 sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="ggm_annotation", 
-              save="/E16_5_E1S1_All_modules_annotation.pdf",show=False)
+              save="/MOSTA_E16_5_E1S1_All_modules_annotation.pdf",show=False)
 sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="ggm_annotation_filtered",
-                save="/E16_5_E1S1_Filtered_modules_annotation.pdf",show=False)
+                save="/MOSTA_E16_5_E1S1_Filtered_modules_annotation.pdf",show=False)
 sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="ggm_annotation_no_activity",
-                save="/E16_5_E1S1_No_activity_modules_annotation.pdf",show=False)
+                save="/MOSTA_E16_5_E1S1_No_activity_modules_annotation.pdf",show=False)
 sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="ggm_annotation_no_spatial",
-                save="/E16_5_E1S1_All_modules_annotation_no_spatial.pdf",show=False)
+                save="/MOSTA_E16_5_E1S1_All_modules_annotation_no_spatial.pdf",show=False)
 sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="ggm_annotation_filtered_no_spatial",
-                save="/E16_5_E1S1_Filtered_modules_annotation_no_spatial.pdf",show=False)
+                save="/MOSTA_E16_5_E1S1_Filtered_modules_annotation_no_spatial.pdf",show=False)
 sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="ggm_annotation_no_activity_no_spatial",
-                save="/E16_5_E1S1_No_activity_modules_annotation_no_spatial.pdf",show=False)
+                save="/MOSTA_E16_5_E1S1_No_activity_modules_annotation_no_spatial.pdf",show=False)
 
 
 # %%
 # 保存adata
-adata.write("data/E16.5_E1S1.MOSTA_ggm_anno.h5ad")
-
+adata.write("data/MOSTA_E16.5_E1S1_ggm_anno.h5ad")
 
 # %%
 # 逐个可视化各个模块的注释结果
-anno_modules = adata.uns['module_stats']['module_id'].unique()
-pdf_file = "figures/MOSTA/All_modules_in_E16_5_E1S1_Module_Anno.pdf"
+anno_modules = adata.uns['module_stats']['module_id']
+pdf_file = "figures/MOSTA/E16_5_E1S1_all_modules_Anno.pdf"
 c = canvas.Canvas(pdf_file, pagesize=letter)
 image_files = []
 for module in anno_modules:
     plt.figure()    
-    sc.pl.spatial(adata, spot_size=1.2, frameon = False, color=[f"{module}_exp",f"{module}_anno",f"{module}_anno_smooth"],show=False)
-    show_png_file = f"figures/MOSTA/{module}_in_E16_5_E1S1_Module_Anno.png"
+    sc.pl.spatial(adata, spot_size=1.2, frameon = False, color_map="Reds", 
+                  color=[f"{module}_exp",f"{module}_anno",f"{module}_anno_smooth"],show=False)
+    show_png_file = f"figures/MOSTA/E16_5_E1S1_{module}_Anno.png"
     plt.savefig(show_png_file, format="png", dpi=300, bbox_inches="tight")
     plt.close()
     image_files.append(show_png_file)
