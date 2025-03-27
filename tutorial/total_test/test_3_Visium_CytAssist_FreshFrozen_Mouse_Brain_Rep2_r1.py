@@ -1,6 +1,6 @@
 
 # %%
-# 使用SpacGPA对 MOATA_E16.5_E1S1 数据进行分析
+# 使用SpacGPA对 visium CytAssist_FreshFrozen_Mouse_Brain_Rep2 数据进行分析
 import numpy as np
 import pandas as pd
 import random
@@ -31,22 +31,27 @@ import SpacGPA as sg
 adata = sc.read_visium("/dta/ypxu/ST_GGM/VS_Code/ST_GGM_dev_1/data/visium/CytAssist_FreshFrozen_Mouse_Brain_Rep2",
                        count_file="CytAssist_FreshFrozen_Mouse_Brain_Rep2_filtered_feature_bc_matrix.h5")
 adata.var_names_make_unique()
+
 adata.var_names = adata.var['gene_ids']
+
 sc.pp.normalize_total(adata, target_sum=1e4)
 sc.pp.log1p(adata)
+print(adata.X.shape)
+
+sc.pp.filter_genes(adata,min_cells=10)
 print(adata.X.shape)
 
 # %%
 # 使用 GPU 计算GGM，double_precision=False
 ggm = sg.create_ggm(adata,
-                    project_name = "E16.5_E1S1", 
+                    project_name = "CytAssist_FreshFrozen_Mouse_Brain_Rep2", 
                     run_mode=2, 
                     double_precision=False,
                     use_chunking=True,
                     chunk_size=10000,
                     stop_threshold=0,
                     FDR_control=True,
-                    FDR_threshold=0.01,
+                    FDR_threshold=0.05,
                     auto_adjust=True,
                     )  
 print(ggm.SigEdges)
@@ -83,13 +88,13 @@ ggm
 # %%
 # 保存GGM
 start_time = time.time()
-sg.save_ggm(ggm, "data/MOSTA_E16.5_E1S1.ggm.h5")
+sg.save_ggm(ggm, "data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm.h5")
 print(f"Time: {time.time() - start_time:.5f} s")
 
 # %%
 # 读取GGM
 start_time = time.time()
-ggm = sg.load_ggm("data/MOSTA_E16.5_E1S1.ggm.h5")
+ggm = sg.load_ggm("data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm.h5")
 print(f"Time: {time.time() - start_time:.5f} s")
 
 # %%
@@ -153,26 +158,26 @@ print(f"Time: {time.time() - start_time:.5f} s")
 
 # %%
 # 可视化聚类结果
-sc.pl.spatial(adata, color='leiden_0.5', size=1.6, alpha_img=0.5, title= "", frameon = False, color="graph_cluster", show=True)
-sc.pl.spatial(adata, color='leiden_0.5', size=1.6, alpha_img=0.5, title= "", frameon = False, color="kmeans_10_clusters", show=True)
-sc.pl.spatial(adata, color='leiden_0.5', size=1.6, alpha_img=0.5, title= "", frameon = False, color="leiden_0.5_ggm", show=True)
-sc.pl.spatial(adata, color='leiden_0.5', size=1.6, alpha_img=0.5, title= "", frameon = False, color="leiden_1_ggm", show=True)
-sc.pl.spatial(adata, color='leiden_0.5', size=1.6, alpha_img=0.5, title= "", frameon = False, color="louvan_0.5_ggm", show=True)
-sc.pl.spatial(adata, color='leiden_0.5', size=1.6, alpha_img=0.5, title= "", frameon = False, color="louvan_1_ggm", show=True)
+sc.pl.spatial(adata, size=1.6, alpha_img=0.5, title= "", frameon = False, color="graph_cluster", show=True)
+sc.pl.spatial(adata, size=1.6, alpha_img=0.5, title= "", frameon = False, color="kmeans_10_clusters", show=True)
+sc.pl.spatial(adata, size=1.6, alpha_img=0.5, title= "", frameon = False, color="leiden_0.5_ggm", show=True)
+sc.pl.spatial(adata, size=1.6, alpha_img=0.5, title= "", frameon = False, color="leiden_1_ggm", show=True)
+sc.pl.spatial(adata, size=1.6, alpha_img=0.5, title= "", frameon = False, color="louvan_0.5_ggm", show=True)
+sc.pl.spatial(adata, size=1.6, alpha_img=0.5, title= "", frameon = False, color="louvan_1_ggm", show=True)
 
 # %%
 # 保存可视化结果
-sc.pl.spatial(adata, color='leiden_0.5', size=1.6, alpha_img=0.5, title= "", frameon = False, color="graph_cluster",
+sc.pl.spatial(adata, size=1.6, alpha_img=0.5, title= "", frameon = False, color="graph_cluster",
                 save="/CytAssist_FreshFrozen_Mouse_Brain_Rep2_raw_graph_annotation.pdf",show=False)
-sc.pl.spatial(adata, color='leiden_0.5', size=1.6, alpha_img=0.5, title= "", frameon = False, color="kmeans_10_clusters",
+sc.pl.spatial(adata, size=1.6, alpha_img=0.5, title= "", frameon = False, color="kmeans_10_clusters",
                 save="/CytAssist_FreshFrozen_Mouse_Brain_Rep2_raw_kmeans_10_clusters_annotation.pdf",show=False)
-sc.pl.spatial(adata, color='leiden_0.5', size=1.6, alpha_img=0.5, title= "", frameon = False, color="leiden_0.5_ggm", 
+sc.pl.spatial(adata, size=1.6, alpha_img=0.5, title= "", frameon = False, color="leiden_0.5_ggm", 
               save="/CytAssist_FreshFrozen_Mouse_Brain_Rep2_ggm_modules_leiden_0.5.pdf",show=False)
-sc.pl.spatial(adata, color='leiden_0.5', size=1.6, alpha_img=0.5, title= "", frameon = False, color="leiden_1_ggm",
+sc.pl.spatial(adata, size=1.6, alpha_img=0.5, title= "", frameon = False, color="leiden_1_ggm",
                 save="/CytAssist_FreshFrozen_Mouse_Brain_Rep2_ggm_modules_leiden_1.pdf",show=False)
-sc.pl.spatial(adata, color='leiden_0.5', size=1.6, alpha_img=0.5, title= "", frameon = False, color="louvan_0.5_ggm",
+sc.pl.spatial(adata, size=1.6, alpha_img=0.5, title= "", frameon = False, color="louvan_0.5_ggm",
                 save="/CytAssist_FreshFrozen_Mouse_Brain_Rep2_ggm_modules_louvan_0.5.pdf",show=False)
-sc.pl.spatial(adata, color='leiden_0.5', size=1.6, alpha_img=0.5, title= "", frameon = False, color="louvan_1_ggm",
+sc.pl.spatial(adata, size=1.6, alpha_img=0.5, title= "", frameon = False, color="louvan_1_ggm",
                 save="/CytAssist_FreshFrozen_Mouse_Brain_Rep2_ggm_modules_louvan_1.pdf",show=False)
 
 
@@ -195,7 +200,7 @@ print(adata.uns['module_stats'])
 
 
 # %%
-adata.uns['module_stats'].to_csv("data/MOSTA_E16.5_E1S1_ggm_module_stats.csv")
+adata.uns['module_stats'].to_csv("data/CytAssist_FreshFrozen_Mouse_Brain_Rep2_ggm_module_stats.csv")
 
 # %%
 # 平滑注释
@@ -214,13 +219,12 @@ print(f"Time: {time.time() - start_time:.5f} s")
 start_time = time.time()
 sg.classify_modules(adata, 
                     ggm_key='ggm',
-                    ref_anno='annotation',
-                    #ref_cluster_method='leiden',
-                    #ref_resolution=0.5,
+                    ref_cluster_method='leiden',
+                    ref_cluster_resolution=0.5,
                     skew_threshold=2,
                     top1pct_threshold=2,
-                    Moran_I_threshold=0.2,
-                    min_dominant_cluster_fraction=0.2,
+                    Moran_I_threshold=0.5,
+                    min_dominant_cluster_fraction=0.3,
                     anno_overlap_threshold=0.4)
 
 # %%
@@ -294,50 +298,50 @@ sg.integrate_annotations(adata,
 
 # %%
 # 保存注释结果
-adata.obs.to_csv("data/MOSTA_E16.5_E1S1_ggm_annotation.csv")
+adata.obs.to_csv("data/CytAssist_FreshFrozen_Mouse_Brain_Rep2_ggm_annotation.csv")
 
 
 # %%
 # 注释结果可视化
-sc.pl.spatial(adata, color='leiden_0.5', size=1.6, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation", show=True)
-sc.pl.spatial(adata, color='leiden_0.5', size=1.6, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_filtered", show=True)
-sc.pl.spatial(adata, color='leiden_0.5', size=1.6, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_no_activity", show=True)
-sc.pl.spatial(adata, color='leiden_0.5', size=1.6, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_no_spatial", show=True)
-sc.pl.spatial(adata, color='leiden_0.5', size=1.6, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_filtered_no_spatial", show=True)
-sc.pl.spatial(adata, color='leiden_0.5', size=1.6, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_no_activity_no_spatial", show=True)
+sc.pl.spatial(adata, size=1.6, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation", show=True)
+sc.pl.spatial(adata, size=1.6, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_filtered", show=True)
+sc.pl.spatial(adata, size=1.6, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_no_activity", show=True)
+sc.pl.spatial(adata, size=1.6, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_no_spatial", show=True)
+sc.pl.spatial(adata, size=1.6, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_filtered_no_spatial", show=True)
+sc.pl.spatial(adata, size=1.6, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_no_activity_no_spatial", show=True)
 
 
 # %%
 # 保存可视化结果
-sc.pl.spatial(adata, color='leiden_0.5', size=1.6, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation", 
+sc.pl.spatial(adata, size=1.6, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation", 
               save="/CytAssist_FreshFrozen_Mouse_Brain_Rep2_All_modules_annotation.pdf",show=False)
-sc.pl.spatial(adata, color='leiden_0.5', size=1.6, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_filtered",
+sc.pl.spatial(adata, size=1.6, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_filtered",
                 save="/CytAssist_FreshFrozen_Mouse_Brain_Rep2_Filtered_modules_annotation.pdf",show=False)
-sc.pl.spatial(adata, color='leiden_0.5', size=1.6, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_no_activity",
+sc.pl.spatial(adata, size=1.6, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_no_activity",
                 save="/CytAssist_FreshFrozen_Mouse_Brain_Rep2_No_activity_modules_annotation.pdf",show=False)
-sc.pl.spatial(adata, color='leiden_0.5', size=1.6, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_no_spatial",
+sc.pl.spatial(adata, size=1.6, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_no_spatial",
                 save="/CytAssist_FreshFrozen_Mouse_Brain_Rep2_All_modules_annotation_no_spatial.pdf",show=False)
-sc.pl.spatial(adata, color='leiden_0.5', size=1.6, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_filtered_no_spatial",
+sc.pl.spatial(adata, size=1.6, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_filtered_no_spatial",
                 save="/CytAssist_FreshFrozen_Mouse_Brain_Rep2_Filtered_modules_annotation_no_spatial.pdf",show=False)
-sc.pl.spatial(adata, color='leiden_0.5', size=1.6, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_no_activity_no_spatial",
+sc.pl.spatial(adata, size=1.6, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_no_activity_no_spatial",
                 save="/CytAssist_FreshFrozen_Mouse_Brain_Rep2_No_activity_modules_annotation_no_spatial.pdf",show=False)
 
 
 # %%
 # 保存adata
-adata.write("data/MOSTA_E16.5_E1S1_ggm_anno.h5ad")
+adata.write("data/CytAssist_FreshFrozen_Mouse_Brain_Rep2_ggm_anno.h5ad")
 
 # %%
 # 逐个可视化各个模块的注释结果
 anno_modules = adata.uns['module_stats']['module_id']
-pdf_file = "figures/MOSTA/E16_5_E1S1_all_modules_Anno.pdf"
+pdf_file = "figures/visium/CytAssist_FreshFrozen_Mouse_Brain_Rep2_all_modules_Anno.pdf"
 c = canvas.Canvas(pdf_file, pagesize=letter)
 image_files = []
 for module in anno_modules:
     plt.figure()    
-    sc.pl.spatial(adata, color='leiden_0.5', size=1.6, alpha_img=0.5, frameon = False, color_map="Reds", 
+    sc.pl.spatial(adata, size=1.6, alpha_img=0.5, frameon = False, color_map="Reds", 
                   color=[f"{module}_exp",f"{module}_anno",f"{module}_anno_smooth"],show=False)
-    show_png_file = f"figures/MOSTA/E16_5_E1S1_{module}_Anno.png"
+    show_png_file = f"figures/visium/CytAssist_FreshFrozen_Mouse_Brain_Rep2_{module}_Anno.png"
     plt.savefig(show_png_file, format="png", dpi=300, bbox_inches="tight")
     plt.close()
     image_files.append(show_png_file)
