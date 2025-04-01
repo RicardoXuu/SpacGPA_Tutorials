@@ -282,6 +282,7 @@ def calculate_gmm_annotations(adata,
                               ggm_key='ggm',
                               modules_used=None,
                               modules_excluded=None,
+                              calculate_moran=True,
                               embedding_key='spatial',
                               k_neighbors=6,
                               max_iter=200,
@@ -289,7 +290,8 @@ def calculate_gmm_annotations(adata,
                               min_samples=10,
                               n_components=3,
                               enable_fallback=True,
-                              random_state=42):
+                              random_state=42
+                              ):
     """
     Gaussian Mixture Model annotation with additional module-level statistics.
     
@@ -301,23 +303,24 @@ def calculate_gmm_annotations(adata,
         - skew: Skewness of the non-zero expression distribution for the module.
         - top1pct_ratio: Ratio of the average expression among the top 1% high-expressing cells
                         to the overall cells mean.
-        - module_moran_I: Global Moran's I computed on the module expression (all cells).
-        - positive_moran_I: Moran's I computed on module expression for cells annotated as 1.
-        - negative_moran_I: Moran's I computed on module expression for cells annotated as 0.
-        - positive_mean_distance: Average pairwise spatial distance among cells annotated as 1.
+        - module_moran_I: Global Moran's I computed on the module expression (all cells) (if calculate_moran True).
+        - positive_moran_I: Moran's I computed on module expression for cells annotated as 1 (if calculate_moran True).
+        - negative_moran_I: Moran's I computed on module expression for cells annotated as 0 (if calculate_moran True).
+        - positive_mean_distance: Average pairwise spatial distance among cells annotated as 1 (if calculate_moran True).
         - n_components: Number of components in the GMM.
         - final_components: Number of components after fallback.
         - threshold: Threshold for calling a cell positive.
         - components: List of dictionaries with keys 'component', 'mean', 'var', 'weight'.
         - main_component: Index of the main component.
         - error_info: Error message if status is 'failed'.
-        - top_go_terms: (新增) 如果检测到GO注释信息，则拼接每个模块在 adata.uns['module_info'] 中所有top_***_go_term 列的内容，以“ || ”分隔.
-    
+        - top_go_terms: Top GO terms associated with the module.
+
     Parameters:
       adata: AnnData object.
       ggm_key: Key for the GGM object in adata.uns['ggm_keys'].
       modules_used: List of module IDs to process; if None, use all modules in adata.uns[mod_info_key].
       modules_excluded: List of module IDs to exclude.
+      calculate_moran: If True, compute Moran's I and other spatial statistics.
       embedding_key: Key in adata.obsm containing spatial coordinates.
       k_neighbors: Number of nearest neighbors for spatial weight matrix.
       max_iter: Maximum iterations for GMM.
@@ -384,20 +387,24 @@ def calculate_gmm_annotations(adata,
         rank_vals = adata.obs[module_col].rank(method='dense', ascending=False).astype(int)
         expr_score[mid] = rank_vals.values
     
-    # Construct spatial weights matrix W based on embedding_key
-    if embedding_key not in adata.obsm:
-        raise ValueError(f"{embedding_key} not found in adata.obsm")
-    coords = adata.obsm[embedding_key]
-    nbrs = NearestNeighbors(n_neighbors=k_neighbors, metric="euclidean").fit(coords)
-    distances, knn_indices = nbrs.kneighbors(coords)
-    with np.errstate(divide='ignore'):
-        weights = 1 / distances
-    weights[distances == 0] = 0
-    row_idx = np.repeat(np.arange(coords.shape[0]), k_neighbors)
-    col_idx = knn_indices.flatten()
-    data_w = weights.flatten()
-    W = sp.coo_matrix((data_w, (row_idx, col_idx)), shape=(coords.shape[0], coords.shape[0])).tocsr()
-    W.setdiag(0)
+    # If calculate_moran is True, construct spatial weights matrix W based on embedding_key.
+    if calculate_moran:
+        if embedding_key not in adata.obsm:
+            raise ValueError(f"{embedding_key} not found in adata.obsm")
+        coords = adata.obsm[embedding_key]
+        nbrs = NearestNeighbors(n_neighbors=k_neighbors, metric="euclidean").fit(coords)
+        distances, knn_indices = nbrs.kneighbors(coords)
+        with np.errstate(divide='ignore'):
+            weights = 1 / distances
+        weights[distances == 0] = 0
+        row_idx = np.repeat(np.arange(coords.shape[0]), k_neighbors)
+        col_idx = knn_indices.flatten()
+        data_w = weights.flatten()
+        W = sp.coo_matrix((data_w, (row_idx, col_idx)), shape=(coords.shape[0], coords.shape[0])).tocsr()
+        W.setdiag(0)
+    else:
+        W = None
+        coords = None
     
     # Build mapping from gene to index using adata.var_names
     gene_to_index = {gene: i for i, gene in enumerate(adata.var_names)}
@@ -468,25 +475,32 @@ def calculate_gmm_annotations(adata,
             module_annotation[non_zero_mask] = anno_non_zero
             annotations[module_id] = module_annotation
             
-            # (A) Module-level Moran's I: computed on the entire module expression vector
-            mod_I = compute_moran(expr_values, W)
-            stats['module_moran_I'] = mod_I
-            
-            # (B) Positive annotation: Construct masked expression vector (0 where 0, expr where 1)
-            pos_expr_masked = np.where(module_annotation == 1, expr_values, 0)
-            stats['positive_moran_I'] = compute_moran(pos_expr_masked, W)
-            # Calculate mean distance among positive cells
-            full_indices = np.where(non_zero_mask)[0]
-            pos_idx = full_indices[anno_non_zero == 1]
-            if len(pos_idx) > 1:
-                pos_coords = coords[pos_idx, :]
-                stats['positive_mean_distance'] = float(np.mean(pdist(pos_coords)))
+            # 计算空间指标仅在 calculate_moran 为 True 时进行
+            if calculate_moran:
+                # (A) Module-level Moran's I: computed on the entire module expression vector
+                mod_I = compute_moran(expr_values, W)
+                stats['module_moran_I'] = mod_I
+                
+                # (B) Positive annotation: Construct masked expression vector (0 where 0, expr where 1)
+                pos_expr_masked = np.where(module_annotation == 1, expr_values, 0)
+                stats['positive_moran_I'] = compute_moran(pos_expr_masked, W)
+                # Calculate mean distance among positive cells
+                full_indices = np.where(non_zero_mask)[0]
+                pos_idx = full_indices[anno_non_zero == 1]
+                if len(pos_idx) > 1:
+                    pos_coords = coords[pos_idx, :]
+                    stats['positive_mean_distance'] = float(np.mean(pdist(pos_coords)))
+                else:
+                    stats['positive_mean_distance'] = np.nan
+                
+                # (C) Negative annotation: Construct masked expression vector (0 where 0, expr where 0)
+                neg_expr_masked = np.where(module_annotation == 0, expr_values, 0)
+                stats['negative_moran_I'] = compute_moran(neg_expr_masked, W)
             else:
+                stats['module_moran_I'] = np.nan
+                stats['positive_moran_I'] = np.nan
+                stats['negative_moran_I'] = np.nan
                 stats['positive_mean_distance'] = np.nan
-            
-            # (C) Negative annotation: Construct masked expression vector (0 where 0, expr where 0)
-            neg_expr_masked = np.where(module_annotation == 0, expr_values, 0)
-            stats['negative_moran_I'] = compute_moran(neg_expr_masked, W)
             
             # (D) Skewness for non-zero expression
             stats['skew'] = float(skew(non_zero_expr))
@@ -559,22 +573,28 @@ def calculate_gmm_annotations(adata,
                         fallback_annotation = np.zeros_like(expr_values, dtype=int)
                         fallback_annotation[non_zero_mask] = anno_non_zero
                         annotations.loc[non_zero_mask, module_id] = anno_non_zero
-                        # Module-level Moran's I
-                        fallback_mod_I = compute_moran(expr_values, W)
-                        stats['module_moran_I'] = fallback_mod_I
-                        # Positive group (using masked expression)
-                        pos_expr_masked = np.where(fallback_annotation == 1, expr_values, 0)
-                        stats['positive_moran_I'] = compute_moran(pos_expr_masked, W)
-                        full_indices = np.where(non_zero_mask)[0]
-                        pos_idx = full_indices[anno_non_zero == 1]
-                        if len(pos_idx) > 1:
-                            pos_coords = coords[pos_idx, :]
-                            stats['positive_mean_distance'] = float(np.mean(pdist(pos_coords)))
+                        if calculate_moran:
+                            # Module-level Moran's I
+                            fallback_mod_I = compute_moran(expr_values, W)
+                            stats['module_moran_I'] = fallback_mod_I
+                            # Positive group (using masked expression)
+                            pos_expr_masked = np.where(fallback_annotation == 1, expr_values, 0)
+                            stats['positive_moran_I'] = compute_moran(pos_expr_masked, W)
+                            full_indices = np.where(non_zero_mask)[0]
+                            pos_idx = full_indices[anno_non_zero == 1]
+                            if len(pos_idx) > 1:
+                                pos_coords = coords[pos_idx, :]
+                                stats['positive_mean_distance'] = float(np.mean(pdist(pos_coords)))
+                            else:
+                                stats['positive_mean_distance'] = np.nan
+                            # Negative group
+                            neg_expr_masked = np.where(fallback_annotation == 0, expr_values, 0)
+                            stats['negative_moran_I'] = compute_moran(neg_expr_masked, W)
                         else:
+                            stats['module_moran_I'] = np.nan
+                            stats['positive_moran_I'] = np.nan
+                            stats['negative_moran_I'] = np.nan
                             stats['positive_mean_distance'] = np.nan
-                        # Negative group
-                        neg_expr_masked = np.where(fallback_annotation == 0, expr_values, 0)
-                        stats['negative_moran_I'] = compute_moran(neg_expr_masked, W)
                         # Skewness and top1pct_ratio
                         stats['skew'] = float(skew(non_zero_expr))
                         if len(non_zero_expr) > 0:
