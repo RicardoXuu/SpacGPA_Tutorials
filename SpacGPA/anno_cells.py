@@ -321,6 +321,7 @@ def calculate_gmm_annotations(adata,
       modules_used: List of module IDs to process; if None, use all modules in adata.uns[mod_info_key].
       modules_excluded: List of module IDs to exclude.
       calculate_moran: If True, compute Moran's I and other spatial statistics.
+                       For Big Spatial Transcriptomics(eg. 10X Visium_HD(2um), etc.), Set to False to avoid memory issues.
       embedding_key: Key in adata.obsm containing spatial coordinates.
       k_neighbors: Number of nearest neighbors for spatial weight matrix.
       max_iter: Maximum iterations for GMM.
@@ -475,7 +476,7 @@ def calculate_gmm_annotations(adata,
             module_annotation[non_zero_mask] = anno_non_zero
             annotations[module_id] = module_annotation
             
-            # 计算空间指标仅在 calculate_moran 为 True 时进行
+            # Calculate additional statistics
             if calculate_moran:
                 # (A) Module-level Moran's I: computed on the entire module expression vector
                 mod_I = compute_moran(expr_values, W)

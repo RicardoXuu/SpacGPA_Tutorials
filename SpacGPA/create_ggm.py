@@ -173,7 +173,8 @@ class create_ggm:
                 if auto_adjust:
                     self.adjust_cutoff(pcor_threshold=round(min_pcor, 3),
                                         coex_cell_threshold=self.cut_off_coex_cell) 
-        
+                    
+        torch.cuda.empty_cache() 
         print("\nTask completed. Resources released.")
     
     def __repr__(self):
