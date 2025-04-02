@@ -596,7 +596,7 @@ adata.uns['module_filtering']['type_tag'].value_counts()
 
 # %%
 # 读取数据
-adata = sc.read_visium("/dta/ypxu/ST_GGM/VS_Code/ST_GGM_dev_1/data/visium_HD/Human_Tonsil_Ultima/binned_outputs/square_016um",
+adata = sc.read_visium("/dta/ypxu/ST_GGM/Raw_Datasets/visium_HD/Visium_HD_Mouse_Small_Intestine/binned_outputs/square_016um",
                        count_file="filtered_feature_bc_matrix.h5")
 adata.var_names_make_unique()
 adata.var_names = adata.var['gene_ids']
@@ -610,23 +610,25 @@ print(adata.X.shape)
 
 # %%
 # 使用 GPU 计算GGM，double_precision=False
-ggm = sg.create_ggm(adata,
-                    project_name = "Human_Tonsil_Ultima", 
-                    run_mode=2, 
-                    double_precision=False,
-                    use_chunking=True,
-                    chunk_size=10000,
-                    stop_threshold=0,
-                    FDR_control=True,
-                    FDR_threshold=0.01,
-                    auto_adjust=True,
-                    )  
+# ggm = sg.create_ggm(adata,
+#                     project_name = "Mouse_Small_Intestine", 
+#                     run_mode=2, 
+#                     double_precision=False,
+#                     use_chunking=True,
+#                     chunk_size=10000,
+#                     stop_threshold=0,
+#                     FDR_control=True,
+#                     FDR_threshold=0.01,
+#                     auto_adjust=True,
+#                     )  
+ggm = sg.create_ggm(adata,round_num=20000)
 print(ggm.SigEdges)
 
 # %%
 # 调整Pcor阈值
-if ggm.cut_off_pcor != 0.02 and ggm.fdr.summary[ggm.fdr.summary['Pcor'] == 0.02]['FDR'].values[0] <= ggm.FDR_threshold:
-    ggm.adjust_cutoff(pcor_threshold=0.02)
+# if ggm.cut_off_pcor != 0.02 and ggm.fdr.summary[ggm.fdr.summary['Pcor'] == 0.02]['FDR'].values[0] <= ggm.FDR_threshold:
+#     ggm.adjust_cutoff(pcor_threshold=0.02)
+ggm.adjust_cutoff(pcor_threshold=0.02)
 
 # %%
 # 使用改进的mcl聚类识别共表达模块
@@ -634,14 +636,14 @@ start_time = time.time()
 ggm.find_modules(methods='mcl-hub',
                  expansion=2, inflation=2, max_iter=1000, tol=1e-6, pruning_threshold=1e-5,
                  min_module_size=10, topology_filtering=True, 
-                 convert_to_symbols=False, species='human')
+                 convert_to_symbols=True, species='mouse')
 print(f"Time: {time.time() - start_time:.5f} s")
 print(ggm.modules_summary)
 
 # %%
 # GO富集分析
 start_time = time.time()
-ggm.go_enrichment_analysis(species='human',padjust_method="BH",pvalue_cutoff=0.05)
+ggm.go_enrichment_analysis(species='mouse',padjust_method="BH",pvalue_cutoff=0.05)
 print(f"Time: {time.time() - start_time:.5f} s")
 print(ggm.go_enrichment)
 
@@ -652,13 +654,13 @@ ggm
 # %%
 # 保存GGM
 start_time = time.time()
-sg.save_ggm(ggm, "data/Human_Tonsil_Ultima_16um.ggm.h5")
+sg.save_ggm(ggm, "data/Mouse_Small_Intestine_16um.ggm.h5")
 print(f"Time: {time.time() - start_time:.5f} s")
 
 # %%
 # 读取GGM
 start_time = time.time()
-ggm = sg.load_ggm("data/Human_Tonsil_Ultima_16um.ggm.h5")
+ggm = sg.load_ggm("data/Mouse_Small_Intestine_16um.ggm.h5")
 print(f"Time: {time.time() - start_time:.5f} s")
 
 # %%
@@ -670,7 +672,7 @@ gc.collect()
 
 # %%
 # 读取2um数据
-adata = sc.read_visium("/dta/ypxu/ST_GGM/VS_Code/ST_GGM_dev_1/data/visium_HD/Human_Tonsil_Ultima/binned_outputs/square_002um",
+adata = sc.read_visium("/dta/ypxu/ST_GGM/Raw_Datasets/visium_HD/Visium_HD_Mouse_Small_Intestine/binned_outputs/square_002um",
                        count_file="filtered_feature_bc_matrix.h5")
 adata.var_names_make_unique()
 adata.var_names = adata.var['gene_ids']
@@ -1246,7 +1248,6 @@ print(f"Time: {time.time() - start_time:.5f} s")
 
 # %%
 adata.uns['module_stats'].head(20)
-
 
 
 # %%
