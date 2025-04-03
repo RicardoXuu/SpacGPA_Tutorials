@@ -211,6 +211,7 @@ def run_mcl(SigEdges, expansion=2, inflation=1.7, add_self_loops='mean',
         # 5. Sort modules by the number of genes (descending) and re-number them starting from 0.
         sorted_clusters = sorted(clusters, key=lambda comp: len(comp), reverse=True)
         filtered_clusters = [cluster for cluster in sorted_clusters if len(cluster) >= min_module_size]
+        print(enumerate(filtered_clusters))
         num_modules = len(filtered_clusters)
         module_names = [f"M{str(i+1).zfill(len(str(num_modules)))}" for i in range(num_modules)]
         
@@ -265,7 +266,8 @@ def run_mcl(SigEdges, expansion=2, inflation=1.7, add_self_loops='mean',
             ensembl_to_symbol = {result['query']: result.get('symbol', result['query']) for result in gene_symbols}
             # Add the 'Symbol' column to the DataFrame.
             module_df['symbol'] = module_df['gene'].map(ensembl_to_symbol)
-
+        
+        module_df['module_id'] = module_df['module_id'].apply(lambda x: "M" + str(int(x[1:])))
         return module_df
     
     finally:
@@ -275,7 +277,8 @@ def run_mcl(SigEdges, expansion=2, inflation=1.7, add_self_loops='mean',
 
 
 # run_louvain 
-def run_louvain(SigEdges, resolution=1.0, 
+def run_louvain(SigEdges, 
+                resolution=1.0, randomize=None, random_state=None,
                 min_module_size=10, topology_filtering=True, 
                 convert_to_symbols=False, species='human'):
     """
@@ -284,9 +287,15 @@ def run_louvain(SigEdges, resolution=1.0,
 
     Parameters:
         SigEdges: DataFrame containing 'GeneA', 'GeneB', and 'Pcor' columns.
-        resolution: A parameter controlling the 'resolution' in the Louvain algorithm.
+        resolution: double, A parameter controlling the 'resolution' in the Louvain algorithm.
                     Higher values lead to more (and smaller) communities.
                     Default is 1.0.
+        randomize:boolean, optional
+                    Will randomize the node evaluation order and the community evaluation order to get different partitions at each call
+        random_state:int, RandomState instance or None, optional (default=None)
+                     If int, random_state is the seed used by the random number generator; 
+                     If RandomState instance, random_state is the random number generator; 
+                     If None, the random number generator is the RandomState instance used by np.random.
         min_module_size: The minimum number of genes required for a module to be retained.
         topology_filtering: Whether to apply topology filtering for each module.
         convert_to_symbols: Whether to convert gene IDs to gene symbols.
@@ -314,7 +323,8 @@ def run_louvain(SigEdges, resolution=1.0,
         G = nx.from_numpy_array(M)
         
         # 4. Apply Louvain community detection with the given resolution.
-        partition = community_louvain.best_partition(G, weight='weight', resolution=resolution)
+        partition = community_louvain.best_partition(G, weight='weight', resolution=resolution,
+                                                     randomize=randomize, random_state=random_state)
         
         # 5. Convert partition to a list of sets, where each set represents a community
         modules = {}
@@ -384,6 +394,7 @@ def run_louvain(SigEdges, resolution=1.0,
             # Add the 'Symbol' column to the DataFrame.
             module_df['symbol'] = module_df['gene'].map(ensembl_to_symbol)
 
+        module_df['module_id'] = module_df['module_id'].apply(lambda x: "M" + str(int(x[1:])))
         return module_df
     
     finally:
@@ -472,7 +483,7 @@ def run_mcl_original(SigEdges, inflation=1.7, scheme=7, threads=1,
         filtered_clusters = [cluster for cluster in sorted_clusters if len(cluster) >= min_module_size]
         num_modules = len(filtered_clusters)
         module_names = [f"M{str(i+1).zfill(len(str(num_modules)))}" for i in range(num_modules)]
-        
+
         # 8. Construct the result: create rows for module_id, gene, and ranking.
         rows = []
         for module_id, cluster in enumerate(filtered_clusters):
@@ -525,6 +536,7 @@ def run_mcl_original(SigEdges, inflation=1.7, scheme=7, threads=1,
             # Add the 'Symbol' column to the DataFrame.
             module_df['symbol'] = module_df['gene'].map(ensembl_to_symbol)
 
+        module_df['module_id'] = module_df['module_id'].apply(lambda x: "M" + str(int(x[1:])))
         return module_df
     
     finally:

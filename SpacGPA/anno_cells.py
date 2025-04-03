@@ -767,6 +767,112 @@ def smooth_annotations(adata,
     print("\nAnnotation smoothing completed. Results stored in adata.obs.\n")
 
 
+# annotate_with_ggm
+def annotate_with_ggm(
+    adata,
+    ggm_obj,
+    ggm_key='ggm',
+    top_genes=30,
+    weighted=True,
+    calculate_gene_moran=False,  
+    calculate_module_moran=True, 
+    embedding_key='spatial',  
+    k_neighbors_for_moran=6,          
+    add_go_anno=3,
+    
+    max_iter=200,
+    prob_threshold=0.99,
+    min_samples=10,
+    n_components=3,
+    enable_fallback=True,
+    random_state=42,
+    
+    k_neighbors_for_smooth=24,
+    min_annotated_neighbors=1
+):
+    """
+    Execute the Annotate and Smooth pipeline for GGM analysis in one step:
+      1. Compute module average expression using provided GGM information (via calculate_module_expression).
+      2. Annotate cells based on module expression with a Gaussian Mixture Model (GMM) and calculate additional module-level statistics (via calculate_gmm_annotations).
+      3. Perform spatial smoothing on the annotation results (via smooth_annotations).
+
+    Parameters:
+      --- For calculate_module_expression ---
+      adata: AnnData object containing gene expression data.
+      ggm_obj: GGM object or DataFrame containing module information.
+      ggm_key: Key for storing GGM information in adata, default 'ggm'.
+      top_genes: Number of top genes used for module expression calculation, default 30.
+      weighted: Whether to compute weighted average expression based on gene degree, default True.
+      calculate_gene_moran: Whether to compute Moran's I for genes during module expression calculation, default False.
+      embedding_key: Key in adata.obsm that stores spatial coordinates, default 'spatial'.
+      k_neighbors_for_moran: Number of neighbors used for constructing the spatial weight matrix, default 6.
+      add_go_anno: Parameter for GO annotation integration; default 3 (extracts top 3 GO terms).
+
+      --- For calculate_gmm_annotations ---
+      ggm_key: Key for storing GGM information in adata, default 'ggm'. same as above.
+      calculate_module_moran: Whether to compute Moran's I for modules during GMM annotation, default True.
+      embedding_key: Key in adata.obsm that stores spatial coordinates, default 'spatial'. same as above.
+      k_neighbors_for_moran: Number of neighbors used for constructing the spatial weight matrix, default 6. same as above.
+      max_iter: Maximum iterations for the GMM, default 200.
+      prob_threshold: Probability threshold for calling a cell positive, default 0.99.
+      min_samples: Minimum number of non-zero samples required for GMM analysis, default 10.
+      n_components: Number of components in the GMM, default 3.
+      enable_fallback: Whether to fallback to a 2-component model if GMM fitting fails, default True.
+      random_state: Random seed for reproducibility, default 42.
+      (Note: Optional parameters like modules_used and modules_excluded are handled within the function.)
+
+      --- For smooth_annotations ---
+      ggm_key: Key for storing GGM information in adata, default 'ggm'. same as above.
+      embedding_key: Key in adata.obsm that stores spatial coordinates, default 'spatial'. same as above.
+      k_neighbors_for_smooth: Number of KNN neighbors used for smoothing annotations, default 24.
+      min_annotated_neighbors: Minimum number of annotated neighbors required to retain a positive annotation, default 1.
+      (Note: Optional parameters like modules_used and modules_excluded are handled within the function.)
+
+    Returns:
+      The updated AnnData object with module expression, cell annotations, and smoothed results stored in .obs and .obsm.
+    """
+    # Compute module average expression
+    print("============ Calculating module average expression ============")
+    calculate_module_expression(
+        adata=adata,
+        ggm_obj=ggm_obj,
+        ggm_key=ggm_key,
+        top_genes=top_genes,
+        weighted=weighted,
+        calculate_moran=calculate_gene_moran,
+        embedding_key=embedding_key,
+        k_neighbors=k_neighbors_for_moran,
+        add_go_anno=add_go_anno
+    )
+    
+    # Annotate cells based on module expression
+    print("\n======== Annotating cells based on module expression ========")
+    calculate_gmm_annotations(
+        adata=adata,
+        ggm_key=ggm_key,
+        calculate_moran=calculate_module_moran,
+        embedding_key=embedding_key,
+        k_neighbors=k_neighbors_for_moran,
+        max_iter=max_iter,
+        prob_threshold=prob_threshold,
+        min_samples=min_samples,
+        n_components=n_components,
+        enable_fallback=enable_fallback,
+        random_state=random_state
+    )
+    
+    # Smooth cell annotations spatially
+    print("\n=================== Smoothing annotations ===================")
+    smooth_annotations(
+        adata=adata,
+        ggm_key=ggm_key,
+        embedding_key=embedding_key,
+        k_neighbors=k_neighbors_for_smooth,
+        min_annotated_neighbors=min_annotated_neighbors
+    )
+    print("\n============= Finished annotating and smoothing =============")
+
+
 # classify_modules
 def classify_modules(adata, 
                      ggm_key='ggm',

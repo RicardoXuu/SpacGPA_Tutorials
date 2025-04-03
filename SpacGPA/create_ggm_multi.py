@@ -533,7 +533,7 @@ class create_ggm_multi:
     def find_modules(self, methods='mcl-hub', 
                     expansion=2, inflation=1.7, add_self_loops='mean', 
                     max_iter=1000, tol=1e-6, pruning_threshold=1e-5,
-                    resolution=1.0,
+                    resolution=1.0, randomize=None, random_state=None,
                     scheme=7, threads=1,
                     min_module_size=10, topology_filtering=True,
                     convert_to_symbols=False, species='human'):
@@ -551,6 +551,13 @@ class create_ggm_multi:
             - pruning_threshold: The mcl pruning threshold.
         - louvain parameters:
             - resolution: The resolution parameter for Louvain.
+            - randomize: Will randomize the node evaluation order and the community evaluation order 
+                         to get different partitions at each call
+            - random_state:int, RandomState instance or None, optional (default=None)
+                           If int, random_state is the seed used by the random number generator; 
+                           If RandomState instance, random_state is the random number generator; 
+                           If None, the random number generator is the RandomState instance used by np.random.
+            (see more details from community.best_partition function in python-louvain package)
         - mcl parameters:
             - inflation: The mcl inflation parameter.
             - scheme: The mcl scheme parameter.
@@ -582,7 +589,7 @@ class create_ggm_multi:
             print(f"Total significantly co-expressed gene pairs: {len(self.SigEdges)}")
             resolution = resolution
             module_df = run_louvain(self.SigEdges, 
-                                    resolution=resolution,
+                                    resolution=resolution, random_state=random_state, randomize=randomize,
                                     min_module_size=min_module_size, topology_filtering=topology_filtering,
                                     convert_to_symbols=convert_to_symbols, species=species)
             self.modules = module_df.copy()                          
@@ -615,6 +622,10 @@ class create_ggm_multi:
                 num_genes_degree_ge_2=('degree', lambda x: (x >= 2).sum()),
                 all_genes=('gene', ', '.join)
             ).reset_index()
+
+        self.modules_summary['module_num'] = self.modules_summary['module_id'].apply(lambda x: int(x.lstrip('M')))
+        self.modules_summary = self.modules_summary.sort_values(by='module_num').reset_index(drop=True)
+        self.modules_summary.drop(columns='module_num', inplace=True)  
     
     def get_module_edges(self, module_id):
         module_edges = get_edges(self, module_id)
