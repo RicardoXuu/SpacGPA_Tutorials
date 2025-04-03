@@ -211,7 +211,6 @@ def run_mcl(SigEdges, expansion=2, inflation=1.7, add_self_loops='mean',
         # 5. Sort modules by the number of genes (descending) and re-number them starting from 0.
         sorted_clusters = sorted(clusters, key=lambda comp: len(comp), reverse=True)
         filtered_clusters = [cluster for cluster in sorted_clusters if len(cluster) >= min_module_size]
-        print(enumerate(filtered_clusters))
         num_modules = len(filtered_clusters)
         module_names = [f"M{str(i+1).zfill(len(str(num_modules)))}" for i in range(num_modules)]
         

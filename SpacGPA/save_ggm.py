@@ -44,7 +44,7 @@ def save_ggm(self, file_path):
         meta_grp.attrs['FDR_control'] = self.FDR_control
         meta_grp.attrs['FDR_threshold'] = self.FDR_threshold
         meta_grp.attrs['auto_adjust'] = self.auto_adjust
-        meta_grp.attrs['auto_find_modules'] = self.auto_find_modules
+        #meta_grp.attrs['auto_find_modules'] = self.auto_find_modules
         meta_grp.create_dataset("gene_name", data=np.array(self.gene_name, dtype="S"))
         meta_grp.create_dataset("sample_name", data=np.array(self.sample_name, dtype="S"))
         meta_grp.attrs['samples_num'] = self.samples_num
@@ -148,7 +148,7 @@ def load_ggm(file_path):
         FDR_control = bool(meta_grp.attrs['FDR_control'])
         FDR_threshold = meta_grp.attrs['FDR_threshold'].item()
         auto_adjust = bool(meta_grp.attrs['auto_adjust'])
-        auto_find_modules = bool(meta_grp.attrs['auto_find_modules']) 
+        #auto_find_modules = bool(meta_grp.attrs['auto_find_modules']) 
         gene_name = np.array(meta_grp['gene_name'], dtype='U')
         sample_name = np.array(meta_grp['sample_name'], dtype='U')
         samples_num = meta_grp.attrs['samples_num'].item()
@@ -271,7 +271,7 @@ def load_ggm(file_path):
     obj.FDR_control = FDR_control
     obj.FDR_threshold = FDR_threshold
     obj.auto_adjust = auto_adjust
-    obj.auto_find_modules = auto_find_modules
+    #obj.auto_find_modules = auto_find_modules
     obj.coexpressed_cell_num = coexp
     obj.pcor_all = pcor_all
     obj.pcor_sampling_num = pcor_sampling_num
