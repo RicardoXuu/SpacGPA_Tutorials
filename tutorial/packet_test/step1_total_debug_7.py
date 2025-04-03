@@ -367,38 +367,32 @@ def find_best_inflation(SigEdges, max_inflation, min_inflation=1.1,
 # best_inf, best_mod = find_best_inflation(SigEdges, max_inflation=2.5)
 
 # %%
-best_inf, best_mod = find_best_inflation(ggm_mulit_union.SigEdges, max_inflation=2.5)
 # %%
 
 # %%
+#best_inf, best_mod = find_best_inflation(ggm.SigEdges, max_inflation=2.5)
 ggm.find_modules(methods='mcl-hub', 
-                        expansion=2, inflation=1.38, max_iter=1000, tol=1e-6, pruning_threshold=1e-5,
+                        expansion=2, inflation=1.5, max_iter=1000, tol=1e-6, pruning_threshold=1e-5,
                         min_module_size=10, topology_filtering=False, 
                         convert_to_symbols=True, species='mouse')
 print(ggm.modules_summary)
 
-
-
 # %%
+best_inf, best_mod = find_best_inflation(ggm_mulit_intersection.SigEdges, max_inflation=2.5)
 ggm_mulit_intersection.find_modules(methods='mcl-hub', 
-                        expansion=2, inflation=1.37, max_iter=1000, tol=1e-6, pruning_threshold=1e-5,
+                        expansion=2, inflation=best_inf, max_iter=1000, tol=1e-6, pruning_threshold=1e-5,
                         min_module_size=10, topology_filtering=False, 
                         convert_to_symbols=True, species='mouse')
 print(ggm_mulit_intersection.modules_summary)
 
 # %%
+best_inf, best_mod = find_best_inflation(ggm_mulit_union.SigEdges, max_inflation=2.5)
 ggm_mulit_union.find_modules(methods='mcl-hub', 
-                        expansion=2, inflation=1.35, max_iter=1000, tol=1e-6, pruning_threshold=1e-5,
+                        expansion=2, inflation=best_inf, max_iter=1000, tol=1e-6, pruning_threshold=1e-5,
                         min_module_size=10, topology_filtering=False, 
                         convert_to_symbols=True, species='mouse')
 print(ggm_mulit_union.modules_summary)
 
-# %%
-ggm
-
-# %%
-ggm_mulit_union.modules_summary['size'][0:20]
-# %%
 
 # %%
 # 计算模块表达值
@@ -413,7 +407,6 @@ sg.calculate_module_expression(adata,
                                k_neighbors=6,
                                add_go_anno=5)  
 print(f"Time1: {time.time() - start_time:.5f} s")
-
 
 # %%
 # 计算GMM注释
@@ -432,7 +425,6 @@ sg.calculate_gmm_annotations(adata,
                             )
 print(f"Time: {time.time() - start_time:.5f} s")
 print(adata.uns['module_stats'])
-
 
 # %%
 sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "", frameon = False, color="M1_anno", show=True)
@@ -469,6 +461,9 @@ sg.classify_modules(adata,
 adata.uns['module_filtering']['type_tag'].value_counts()
 
 # %%
+adata.uns['module_filtering']['type_tag']
+
+# %%
 start_time = time.time()
 sg.integrate_annotations(adata,
                         ggm_key='ggm',
@@ -493,22 +488,10 @@ print(f"Time: {time.time() - start_time:.5f} s")
 sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "", frameon = False, color="annotation", show=True)
 # %%
 
-
-
-# %%
-for module in adata.uns['module_stats']['module_id'].unique():
-    print(module)
-    print(adata.uns['module_info'][adata.uns['module_info']['module_id']==module]['module_moran_I'].unique())
-    sc.pl.spatial(adata, color=[f"{module}_exp",f"{module}_anno",f"{module}_anno_smooth"], 
-                  color_map="Reds", alpha_img = 0.5, size = 1.6, frameon = False, show=True,
-                  save=f"/CytAssist_FreshFrozen_Mouse_Brain_Rep2_{module}_ggm_anno.pdf")
-
-
-
 # %%
 # 逐个可视化各个模块的注释结果
 anno_modules = adata.uns['module_stats']['module_id']
-pdf_file = "figures/visium/CytAssist_FreshFrozen_Mouse_Brain_Rep2_all_modules_Anno.pdf"
+pdf_file = "figures/visium/CytAssist_FreshFrozen_Mouse_Brain_Rep2_all_modules_Anno_1.5.pdf"
 c = canvas.Canvas(pdf_file, pagesize=letter)
 image_files = []
 for module in anno_modules:
