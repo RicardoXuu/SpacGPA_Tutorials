@@ -360,19 +360,300 @@ def find_best_inflation(SigEdges, max_inflation, min_inflation=1.1,
     print(f"\n最佳 inflation 值: {best_inflation:.2f}, 对应 modularity: {best_modularity:.4f}")
     return best_inflation, best_modularity
 
-# 示例调用：
-# 假设 SigEdges 是一个包含 'GeneA', 'GeneB', 'Pcor' 列的 DataFrame，
-# 例如：
-# SigEdges = pd.read_csv("your_SigEdges.csv")
-# best_inf, best_mod = find_best_inflation(SigEdges, max_inflation=2.5)
+# %%
+import numpy as np
+import pandas as pd
+import networkx as nx
+import torch
+import sys
+import gc
+
+def run_mcl_qc(SigEdges, expansion=2, inflation=1.7, add_self_loops='mean', 
+               max_iter=1000, tol=1e-6, pruning_threshold=1e-5, 
+               run_mode=2):
+    """
+    Perform MCL clustering on input SigEdges (DataFrame with 'GeneA', 'GeneB', 'Pcor')
+    until the candidate node integration stage and return the clustering result.
+    
+    Parameters:
+        SigEdges: DataFrame with 'GeneA', 'GeneB', and 'Pcor' columns.
+        expansion: Exponent for the expansion step (default 2).
+        inflation: Exponent for the inflation step (typically >1, default 1.7).
+        add_self_loops: Method for adding self-loops. Options: 'mean', 'min', 'max', 'dynamic', 'none' (default 'mean').
+        max_iter: Maximum iterations (default 1000).
+        tol: Convergence threshold (default 1e-6).
+        pruning_threshold: Elements below this threshold are set to zero (default 1e-5).
+        run_mode: 0 for CPU, non-zero for GPU (default 2, uses GPU).
+        
+    Returns:
+        clusters: A list of sets, each set contains indices of genes (according to SigEdges order) in one cluster.
+    """
+    try:
+        # 1. Extract unique genes and create a mapping from gene to index.
+        genes = pd.unique(SigEdges[['GeneA', 'GeneB']].values.ravel())
+        gene_index = {gene: i for i, gene in enumerate(genes)}
+        n = len(genes)
+        
+        # Build a symmetric weighted adjacency matrix using 'Pcor' values.
+        M = np.zeros((n, n), dtype=np.float32)
+        for _, row in SigEdges.iterrows():
+            i = gene_index[row['GeneA']]
+            j = gene_index[row['GeneB']]
+            M[i, j] = row['Pcor']
+            M[j, i] = row['Pcor']
+        
+        # Construct the original graph (for candidate node integration) with nodes as indices.
+        G_ori = nx.from_numpy_array(M)
+        
+        # 2. Add self-loops according to the specified method.
+        if add_self_loops == 'mean':
+            np.fill_diagonal(M, np.mean(M[M > 0]))
+        elif add_self_loops == 'min':
+            np.fill_diagonal(M, np.min(M[M > 0]))
+        elif add_self_loops == 'max':
+            np.fill_diagonal(M, np.max(M))
+        elif add_self_loops == 'dynamic':
+            for col_idx in range(M.shape[1]):
+                nonzero_elements = M[:, col_idx][M[:, col_idx] > 0]
+                if len(nonzero_elements) > 0:
+                    M[col_idx, col_idx] = np.mean(nonzero_elements)
+                else:
+                    M[col_idx, col_idx] = np.min(M[M > 0])
+        elif add_self_loops == 'none':
+            pass
+        else:
+            raise ValueError("Invalid value for 'add_self_loops'. Choose from 'mean', 'min', 'max', 'dynamic', or 'none'.")
+        
+        # 3. Convert the matrix to a PyTorch tensor and set the computation device.
+        device = 'cpu' if run_mode == 0 else 'cuda'
+        M = torch.tensor(M, device=device)
+        
+        # Define a function for column normalization (each column sums to 1).
+        def normalize_columns(matrix):
+            col_sums = matrix.sum(dim=0)
+            return matrix / col_sums
+        
+        # Initial normalization.
+        M = normalize_columns(M)
+        
+        # 4. MCL iteration: expansion, inflation, normalization, pruning, and convergence check.
+        for iteration in range(max_iter):
+            M_prev = M.clone()
+            M = torch.matrix_power(M, expansion)   # Expansion step
+            M = M.pow(inflation)                     # Inflation step
+            M = normalize_columns(M)
+            M[M < pruning_threshold] = 0            # Pruning step
+            M = normalize_columns(M)
+            diff = torch.max(torch.abs(M - M_prev))
+            if diff < tol:
+                break
+        
+        # 5. Convert the final matrix back to NumPy and construct a graph for candidate integration.
+        M_np = M.cpu().numpy()
+        G = nx.from_numpy_array(M_np)
+        del M, M_np  # Release memory
+        
+        # 6. Extract connected components as initial clusters.
+        clusters = list(nx.connected_components(G))
+        # Treat single-node clusters as candidate nodes and remove them from clusters.
+        size1_clusters = [cluster for cluster in clusters if len(cluster) == 1]
+        candidate_nodes = set()
+        for cluster in size1_clusters:
+            for node in cluster:
+                candidate_nodes.add(node)
+        clusters = [cluster for cluster in clusters if len(cluster) > 1]
+        
+        # 7. Helper function to compute the shortest path.
+        def find_shortest_path(net, source, target):
+            try:
+                return nx.shortest_path(net, source=source, target=target)
+            except nx.NetworkXNoPath:
+                return None
+        
+        # 8. For each cluster (sorted in descending order by size), find zero-degree nodes 
+        # and use candidate nodes to supplement the cluster.
+        clusters_sorted = sorted(clusters, key=lambda x: len(x), reverse=True)
+        for cluster in clusters_sorted:
+            subgraph = G.subgraph(cluster)
+            degrees = dict(subgraph.degree())
+            if not degrees:
+                continue
+            attractor = max(degrees, key=degrees.get)  # Select the node with highest degree
+            subgraph_ori = G_ori.subgraph(cluster)
+            degree_zero_nodes = [node for node, deg in subgraph_ori.degree() if deg == 0]
+            if degree_zero_nodes:
+                net_temp = G_ori.subgraph(set(candidate_nodes) | cluster)
+                for node in degree_zero_nodes:
+                    path = find_shortest_path(net_temp, node, attractor)
+                    if path:
+                        for n in path:
+                            if n in candidate_nodes:
+                                candidate_nodes.remove(n)
+                        cluster.update(path)
+        
+        # 9. For each cluster, move zero-degree nodes to the candidate set.
+        for cluster in clusters:
+            subgraph_ori = G_ori.subgraph(cluster)
+            for node, deg in list(subgraph_ori.degree()):
+                if deg == 0:
+                    cluster.remove(node)
+                    candidate_nodes.add(node)
+        
+        # 10. Map nodes to clusters for candidate assignment.
+        node_to_cluster = {}
+        for idx, cluster in enumerate(clusters):
+            for node in cluster:
+                node_to_cluster[node] = idx
+        
+        # 11. For each candidate node, assign it to the best matching cluster based on neighbor counts.
+        for node in list(candidate_nodes):
+            neighbors = set(G_ori.neighbors(node))
+            if not neighbors:
+                continue
+            cluster_count = {}
+            for nbr in neighbors:
+                if nbr in node_to_cluster:
+                    cid = node_to_cluster[nbr]
+                    cluster_count[cid] = cluster_count.get(cid, 0) + 1
+            total_neighbors = sum(cluster_count.values())
+            for cid, count in cluster_count.items():
+                if count >= total_neighbors / 2:
+                    clusters[cid].add(node)
+                    node_to_cluster[node] = cid
+                    candidate_nodes.remove(node)
+                    break
+        
+        # Return the clustering result: each cluster is a set of node indices.
+        return clusters
+    
+    finally:
+        gc.collect()
+        if run_mode != 0:
+            torch.cuda.empty_cache()
+
+def build_original_graph(SigEdges, add_self_loops='mean'):
+    """
+    Constructs the original network graph from SigEdges for modularity computation.
+    Nodes are represented as indices.
+    """
+    genes = pd.unique(SigEdges[['GeneA', 'GeneB']].values.ravel())
+    gene_index = {gene: i for i, gene in enumerate(genes)}
+    n = len(genes)
+    M = np.zeros((n, n), dtype=np.float32)
+    for _, row in SigEdges.iterrows():
+        i = gene_index[row['GeneA']]
+        j = gene_index[row['GeneB']]
+        M[i, j] = row['Pcor']
+        M[j, i] = row['Pcor']
+    if add_self_loops == 'mean':
+        np.fill_diagonal(M, np.mean(M[M > 0]))
+    elif add_self_loops == 'min':
+        np.fill_diagonal(M, np.min(M[M > 0]))
+    elif add_self_loops == 'max':
+        np.fill_diagonal(M, np.max(M))
+    elif add_self_loops == 'dynamic':
+        for col_idx in range(M.shape[1]):
+            nonzero_elements = M[:, col_idx][M[:, col_idx] > 0]
+            if len(nonzero_elements) > 0:
+                M[col_idx, col_idx] = np.mean(nonzero_elements)
+            else:
+                M[col_idx, col_idx] = np.min(M[M > 0])
+    elif add_self_loops == 'none':
+        pass
+    G_ori = nx.from_numpy_array(M)
+    return G_ori
+
+def find_best_inflation(SigEdges, max_inflation, min_inflation=1.1,
+                        coarse_step=0.1, mid_step=0.05, fine_step=0.01,
+                        expansion=2, add_self_loops='mean', max_iter=1000,
+                        tol=1e-6, pruning_threshold=1e-5, run_mode=2):
+    """
+    Search for the optimal inflation parameter based on SigEdges using run_mcl_qc.
+    The clustering is evaluated using NetworkX's modularity metric.
+    
+    Parameters:
+      SigEdges: DataFrame with 'GeneA', 'GeneB', 'Pcor' columns.
+      max_inflation: Maximum inflation parameter to search.
+      min_inflation: Minimum inflation parameter allowed (default 1.1).
+      coarse_step: Step size for coarse search (default 0.1).
+      mid_step: Step size for mid-phase search (default 0.05).
+      fine_step: Step size for fine search (default 0.01).
+      expansion, add_self_loops, max_iter, tol, pruning_threshold, run_mode:
+          Parameters for run_mcl_qc controlling the MCL clustering.
+    
+    Returns:
+      (best_inflation, best_modularity)
+    """
+    # Build the original graph for modularity computation.
+    G_ori = build_original_graph(SigEdges, add_self_loops=add_self_loops)
+    
+    best_inflation = None
+    best_modularity = -np.inf
+    
+    def evaluate_inflation(inflation):
+        # Obtain clustering result from run_mcl_qc.
+        clusters = run_mcl_qc(SigEdges, expansion=expansion, inflation=inflation, 
+                              add_self_loops=add_self_loops, max_iter=max_iter, 
+                              tol=tol, pruning_threshold=pruning_threshold, 
+                              run_mode=run_mode)
+        # Ensure clustering covers all nodes.
+        all_nodes = set(G_ori.nodes())
+        clustered_nodes = set().union(*clusters)
+        missing_nodes = all_nodes - clustered_nodes
+        for node in missing_nodes:
+            clusters.append({node})
+        # If only one community, define modularity as 0.
+        if len(clusters) <= 1:
+            return 0.0
+        Q = nx.algorithms.community.modularity(G_ori, clusters, weight='weight')
+        return Q
+
+    # Phase 1: Coarse search.
+    print("Phase 1: Coarse search")
+    inflation_val = max_inflation
+    while inflation_val >= min_inflation:
+        Q = evaluate_inflation(inflation_val)
+        print(f"inflation = {inflation_val:.2f}, modularity = {Q:.4f}")
+        if Q > best_modularity:
+            best_modularity = Q
+            best_inflation = inflation_val
+        inflation_val = round(inflation_val - coarse_step, 4)
+    
+    # Phase 2: Mid-step search in the range [best_inflation - coarse_step, best_inflation + coarse_step].
+    print("\nPhase 2: Mid-step search")
+    lower_bound = max(best_inflation - coarse_step, min_inflation)
+    upper_bound = min(best_inflation + coarse_step, max_inflation)
+    inflation_val = upper_bound
+    while inflation_val >= lower_bound:
+        Q = evaluate_inflation(inflation_val)
+        print(f"inflation = {inflation_val:.2f}, modularity = {Q:.4f}")
+        if Q > best_modularity:
+            best_modularity = Q
+            best_inflation = inflation_val
+        inflation_val = round(inflation_val - mid_step, 4)
+    
+    # Phase 3: Fine search in the range [best_inflation - mid_step, best_inflation + mid_step].
+    print("\nPhase 3: Fine search")
+    lower_bound = max(best_inflation - mid_step, min_inflation)
+    upper_bound = min(best_inflation + mid_step, max_inflation)
+    inflation_val = upper_bound
+    while inflation_val >= lower_bound:
+        Q = evaluate_inflation(inflation_val)
+        print(f"inflation = {inflation_val:.2f}, modularity = {Q:.4f}")
+        if Q > best_modularity:
+            best_modularity = Q
+            best_inflation = inflation_val
+        inflation_val = round(inflation_val - fine_step, 4)
+    
+    print(f"\nBest inflation: {best_inflation:.2f}, modularity: {best_modularity:.4f}")
+    return best_inflation, best_modularity
 
 # %%
-# %%
 
 # %%
-#best_inf, best_mod = find_best_inflation(ggm.SigEdges, max_inflation=2.5)
+best_inf, best_mod = sg.find_best_inflation(ggm.SigEdges, max_inflation=2.5)
 ggm.find_modules(methods='mcl-hub', 
-                        expansion=2, inflation=1.5, max_iter=1000, tol=1e-6, pruning_threshold=1e-5,
+                        expansion=2, inflation=best_inf, max_iter=1000, tol=1e-6, pruning_threshold=1e-5,
                         min_module_size=10, topology_filtering=False, 
                         convert_to_symbols=True, species='mouse')
 print(ggm.modules_summary)
@@ -407,6 +688,25 @@ sg.calculate_module_expression(adata,
                                k_neighbors=6,
                                add_go_anno=5)  
 print(f"Time1: {time.time() - start_time:.5f} s")
+
+
+# %%
+#使用leiden聚类和louvain聚类基于模块表达矩阵归一化矩阵进行聚类
+start_time = time.time()
+sc.pp.neighbors(adata, n_neighbors=18, use_rep='module_expression_scaled',n_pcs=adata.obsm['module_expression_scaled'].shape[1])
+sc.tl.leiden(adata, resolution=0.5, key_added='leiden_0.5_ggm')
+sc.tl.leiden(adata, resolution=1, key_added='leiden_1_ggm')
+sc.tl.louvain(adata, resolution=0.5, key_added='louvan_0.5_ggm')
+sc.tl.louvain(adata, resolution=1, key_added='louvan_1_ggm')
+print(f"Time: {time.time() - start_time:.5f} s")
+
+
+# %%
+sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "", frameon = False, color="leiden_0.5_ggm", show=True)
+sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "", frameon = False, color="leiden_1_ggm", show=True)
+sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "", frameon = False, color="louvan_0.5_ggm", show=True)
+sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "", frameon = False, color="louvan_1_ggm", show=True)
+
 
 # %%
 # 计算GMM注释

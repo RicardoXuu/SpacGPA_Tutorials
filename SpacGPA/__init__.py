@@ -4,10 +4,11 @@ from .calculate_pcors import calculate_pcors_pytorch, estimate_rounds
 from .find_modules import run_mcl, run_louvain, run_mcl_original
 from .enrich_analysis import go_enrichment_analysis, mp_enrichment_analysis, get_GO_annoinfo
 from .module_show import get_module_edges, get_module_anno
-from .anno_cells import calculate_module_expression, calculate_gmm_annotations, smooth_annotations, integrate_annotations 
-from .anno_cells import annotate_with_ggm, classify_modules, calculate_module_overlap
+from .anno_cells import calculate_module_expression, calculate_gmm_annotations, smooth_annotations
+from .anno_cells import annotate_with_ggm, integrate_annotations 
 from .anno_cells import integrate_annotations_old
 from .preprocessing import detect_duplicated_genes, detect_zero_in_csr
+from .par_optimization import find_best_inflation, classify_modules, calculate_module_overlap
 from .save_ggm import save_ggm, load_ggm
 
 __all__ = [
@@ -17,8 +18,9 @@ __all__ = [
     'run_mcl', 'run_louvain', 'run_mcl_original',
     'go_enrichment_analysis', 'mp_enrichment_analysis', 'get_GO_annoinfo',
     'get_module_edges', 'get_module_anno',
-    'calculate_module_expression', 'calculate_gmm_annotations', 'smooth_annotations', 'integrate_annotations', 
-    'annotate_with_ggm', 'classify_modules', 'calculate_module_overlap',
+    'calculate_module_expression', 'calculate_gmm_annotations', 'smooth_annotations', 
+    'annotate_with_ggm', 'integrate_annotations', 
+    'find_best_inflation', 'classify_modules', 'calculate_module_overlap',
     'integrate_annotations_old',
     'detect_duplicated_genes', 'detect_zero_in_csr',
     'save_ggm', 'load_ggm'
