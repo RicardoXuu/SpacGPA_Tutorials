@@ -203,89 +203,229 @@ def build_original_graph(SigEdges, add_self_loops='mean'):
     return G_ori
 
 # find_best_inflation
-def find_best_inflation(SigEdges, max_inflation, min_inflation=1.1,
+def find_best_inflation(ggm, min_inflation=1.1, max_inflation=5,
                         coarse_step=0.1, mid_step=0.05, fine_step=0.01,
                         expansion=2, add_self_loops='mean', max_iter=1000,
-                        tol=1e-6, pruning_threshold=1e-5, run_mode=2):
+                        tol=1e-6, pruning_threshold=1e-5, run_mode=2,
+                        phase=3, show_plot=False):
     """
-    Search for the optimal inflation parameter based on SigEdges using run_mcl_qc.
-    The clustering is evaluated using NetworkX's modularity metric.
-    
+    Optimize the inflation parameter for MCL clustering using SigEdges data by 
+    performing a three-phase search and evaluating clustering quality using the 
+    NetworkX modularity metric.
+
+    Phases:
+      - Phase 1 (Coarse Search): Starting from min_inflation, increment by coarse_step.
+        If, within the first three evaluations, both the second and third modularity 
+        values are lower than the first, then min_inflation is considered too high and 
+        the process terminates. Otherwise, if modularity decreases in two consecutive 
+        steps, the phase stops and the inflation with the highest modularity in this 
+        phase (max_coarse) is selected.
+      - Phase 2 (Mid-step Search): Search the range [max_coarse - coarse_step, max_coarse + coarse_step]
+        with a step of mid_step to obtain an intermediate best value (max_mid).
+      - Phase 3 (Fine Search): Search the range [max_mid - mid_step, max_mid + mid_step]
+        with a step of fine_step to obtain the final optimal inflation value (max_fine).
+
+    The 'phase' parameter controls execution:
+      - phase = 1: Execute only Phase 1.
+      - phase = 2: Execute Phases 1 and 2.
+      - phase = 3: Execute all three phases.
+
+    All evaluation points are recorded, and an optional scatter plot is produced (if show_plot=True)
+    with the x-axis ticks set at mid_step intervals. The best point is marked with a red dot,
+    and dashed lines are drawn at the best inflation and modularity values.
+
     Parameters:
-      SigEdges: DataFrame with 'GeneA', 'GeneB', 'Pcor' columns.
-      max_inflation: Maximum inflation parameter to search.
-      min_inflation: Minimum inflation parameter allowed (default 1.1).
+      ggm: GGM object containing the SigEdges information.
+      max_inflation: Maximum inflation value for the search.
+      min_inflation: Minimum inflation value allowed (default 1.1).
       coarse_step: Step size for coarse search (default 0.1).
-      mid_step: Step size for mid-phase search (default 0.05).
+      mid_step: Step size for mid-step search (default 0.05).
       fine_step: Step size for fine search (default 0.01).
       expansion, add_self_loops, max_iter, tol, pruning_threshold, run_mode:
           Parameters for run_mcl_qc controlling the MCL clustering.
-    
+      phase: Which phase to execute up to (1, 2, or 3; default 3).
+      show_plot: Whether to display a scatter plot (default False).
+
     Returns:
       (best_inflation, best_modularity)
     """
+    print("\nFinding best inflation value for MCL-Hub clustering...\n")
     # Build the original graph for modularity computation.
+    if ggm.SigEdges is None:
+        raise ValueError("ggm object does not have 'SigEdges' information.")
+    SigEdges = ggm.SigEdges
     G_ori = build_original_graph(SigEdges, add_self_loops=add_self_loops)
     
-    best_inflation = None
-    best_modularity = -np.inf
+    # Cache to store computed modularity values to avoid redundant calculations.
+    eval_cache = {}
+    # Global lists to record evaluation points (used for plotting).
+    global_inflations = []
+    global_modularities = []
     
     def evaluate_inflation(inflation):
-        # Obtain clustering result from run_mcl_qc.
+        if inflation in eval_cache:
+            return eval_cache[inflation]
         clusters = run_mcl_qc(SigEdges, expansion=expansion, inflation=inflation, 
-                              add_self_loops=add_self_loops, max_iter=max_iter, 
-                              tol=tol, pruning_threshold=pruning_threshold, 
-                              run_mode=run_mode)
-        # Ensure clustering covers all nodes.
+                                add_self_loops=add_self_loops, max_iter=max_iter, 
+                                tol=tol, pruning_threshold=pruning_threshold, 
+                                run_mode=run_mode)
+        # Ensure all nodes are assigned (unassigned nodes become singleton communities).
         all_nodes = set(G_ori.nodes())
         clustered_nodes = set().union(*clusters)
         missing_nodes = all_nodes - clustered_nodes
         for node in missing_nodes:
             clusters.append({node})
-        # If only one community, define modularity as 0.
         if len(clusters) <= 1:
-            return 0.0
-        Q = nx.algorithms.community.modularity(G_ori, clusters, weight='weight')
+            Q = 0.0
+        else:
+            Q = nx.algorithms.community.modularity(G_ori, clusters, weight='weight')
+        eval_cache[inflation] = Q
         return Q
 
-    # Phase 1: Coarse search.
+    best_inflation = None
+    best_modularity = -np.inf
+
+    # -------------------- Phase 1: Coarse Search (Ascending) --------------------
     print("Phase 1: Coarse search")
-    inflation_val = max_inflation
-    while inflation_val >= min_inflation:
+    inflation_val = min_inflation
+    coarse_results = []
+    consecutive_decrease = 0
+    prev_Q = None
+    first_Q = None
+    second_Q = None
+    third_Q = None
+
+    while inflation_val <= max_inflation:
         Q = evaluate_inflation(inflation_val)
-        print(f"inflation = {inflation_val:.2f}, modularity = {Q:.4f}")
-        if Q > best_modularity:
-            best_modularity = Q
-            best_inflation = inflation_val
-        inflation_val = round(inflation_val - coarse_step, 4)
+        coarse_results.append((inflation_val, Q))
+        global_inflations.append(inflation_val)
+        global_modularities.append(Q)
+        print(f"Inflation = {inflation_val:.2f}, Modularity = {Q:.4f}")
+        
+        # Check the first three evaluations.
+        if len(coarse_results) == 1:
+            first_Q = Q
+        elif len(coarse_results) == 2:
+            second_Q = Q
+        elif len(coarse_results) == 3:
+            third_Q = Q
+            if second_Q < first_Q and third_Q < first_Q:
+                print("\nTerminating: min_inflation is set too high; initial modularity exceeds subsequent values. Please adjust min_inflation.")
+                return None, None
+        
+        if prev_Q is not None:
+            if Q < prev_Q:
+                consecutive_decrease += 1
+            else:
+                consecutive_decrease = 0
+        prev_Q = Q
+        
+        if consecutive_decrease >= 2:
+            break
+        inflation_val = round(inflation_val + coarse_step, 4)
     
-    # Phase 2: Mid-step search in the range [best_inflation - coarse_step, best_inflation + coarse_step].
+    max_coarse = max(coarse_results, key=lambda x: x[1])[0]
+    print(f"Coarse search best inflation: {max_coarse:.2f}")
+    
+    if phase == 1:
+        best_inflation, best_modularity = max_coarse, evaluate_inflation(max_coarse)
+        print(f"\nBest inflation (Phase 1): {best_inflation:.2f}, Modularity: {best_modularity:.4f}")
+        if show_plot:
+            import matplotlib.pyplot as plt
+            plt.figure(figsize=(8, 6))
+            x_min, x_max = min(global_inflations), max(global_inflations)
+            ticks = np.arange(round(x_min,2), round(x_max + mid_step,2), mid_step)
+            plt.xticks(ticks)
+            plt.scatter(global_inflations, global_modularities, c='blue', alpha=0.6, edgecolors='k')
+            plt.scatter([best_inflation], [best_modularity], c='red', s=100, edgecolors='k', label="Best")
+            plt.axvline(x=best_inflation, linestyle='--', color='lightgrey')
+            plt.axhline(y=best_modularity, linestyle='--', color='lightgrey')
+            plt.xlabel("Inflation")
+            plt.ylabel("Modularity")
+            plt.title("Inflation vs. Modularity")
+            plt.grid(False)
+            plt.tight_layout()
+            plt.legend()
+            plt.show()
+        return best_inflation, best_modularity
+    
+    # -------------------- Phase 2: Mid-step Search --------------------
     print("\nPhase 2: Mid-step search")
-    lower_bound = max(best_inflation - coarse_step, min_inflation)
-    upper_bound = min(best_inflation + coarse_step, max_inflation)
-    inflation_val = upper_bound
-    while inflation_val >= lower_bound:
+    lower_bound = max(min_inflation, max_coarse - coarse_step)
+    upper_bound = min(max_inflation, max_coarse + coarse_step)
+    mid_results = []
+    inflation_vals_mid = np.arange(lower_bound, upper_bound + mid_step/2, mid_step)
+    for inflation_val in inflation_vals_mid:
+        inflation_val = round(inflation_val, 4)
         Q = evaluate_inflation(inflation_val)
-        print(f"inflation = {inflation_val:.2f}, modularity = {Q:.4f}")
-        if Q > best_modularity:
-            best_modularity = Q
-            best_inflation = inflation_val
-        inflation_val = round(inflation_val - mid_step, 4)
+        mid_results.append((inflation_val, Q))
+        if inflation_val not in global_inflations:
+            global_inflations.append(inflation_val)
+            global_modularities.append(Q)
+        print(f"Inflation = {inflation_val:.2f}, Modularity = {Q:.4f}")
     
-    # Phase 3: Fine search in the range [best_inflation - mid_step, best_inflation + mid_step].
+    max_mid = max(mid_results, key=lambda x: x[1])[0]
+    print(f"Mid-step search best inflation: {max_mid:.2f}")
+    
+    if phase == 2:
+        best_inflation, best_modularity = max_mid, evaluate_inflation(max_mid)
+        print(f"\nBest inflation (Phase 2): {best_inflation:.2f}, Modularity: {best_modularity:.4f}")
+        if show_plot:
+            import matplotlib.pyplot as plt
+            plt.figure(figsize=(8, 6))
+            x_min, x_max = min(global_inflations), max(global_inflations)
+            ticks = np.arange(round(x_min,2), round(x_max + mid_step,2), mid_step)
+            plt.xticks(ticks)
+            plt.scatter(global_inflations, global_modularities, c='blue', alpha=0.6, edgecolors='k')
+            plt.scatter([best_inflation], [best_modularity], c='red', s=100, edgecolors='k', label="Best")
+            plt.axvline(x=best_inflation, linestyle='--', color='lightgrey')
+            plt.axhline(y=best_modularity, linestyle='--', color='lightgrey')
+            plt.xlabel("Inflation")
+            plt.ylabel("Modularity")
+            plt.title("Inflation vs. Modularity")
+            plt.grid(False)
+            plt.tight_layout()
+            plt.legend()
+            plt.show()
+        return best_inflation, best_modularity
+    
+    # -------------------- Phase 3: Fine Search --------------------
     print("\nPhase 3: Fine search")
-    lower_bound = max(best_inflation - mid_step, min_inflation)
-    upper_bound = min(best_inflation + mid_step, max_inflation)
-    inflation_val = upper_bound
-    while inflation_val >= lower_bound:
+    lower_bound = max(min_inflation, max_mid - mid_step)
+    upper_bound = min(max_inflation, max_mid + mid_step)
+    fine_results = []
+    inflation_vals_fine = np.arange(lower_bound, upper_bound + fine_step/2, fine_step)
+    for inflation_val in inflation_vals_fine:
+        inflation_val = round(inflation_val, 4)
         Q = evaluate_inflation(inflation_val)
-        print(f"inflation = {inflation_val:.2f}, modularity = {Q:.4f}")
-        if Q > best_modularity:
-            best_modularity = Q
-            best_inflation = inflation_val
-        inflation_val = round(inflation_val - fine_step, 4)
+        fine_results.append((inflation_val, Q))
+        if inflation_val not in global_inflations:
+            global_inflations.append(inflation_val)
+            global_modularities.append(Q)
+        print(f"Inflation = {inflation_val:.2f}, Modularity = {Q:.4f}")
     
-    print(f"\nBest inflation: {best_inflation:.2f}, modularity: {best_modularity:.4f}")
+    best_inflation, best_modularity = max(fine_results, key=lambda x: x[1])
+    print(f"\nBest inflation (Phase 3): {best_inflation:.2f}, Modularity: {best_modularity:.4f}")
+    
+    # Plotting (Optional)
+    if show_plot:
+        import matplotlib.pyplot as plt
+        plt.figure(figsize=(8, 6))
+        x_min, x_max = min(global_inflations), max(global_inflations)
+        ticks = np.arange(round(x_min,2), round(x_max + mid_step,2), mid_step)
+        plt.xticks(ticks)
+        plt.scatter(global_inflations, global_modularities, c='blue', alpha=0.6, edgecolors='k')
+        plt.scatter([best_inflation], [best_modularity], c='red', s=100, edgecolors='k', label="Best")
+        plt.axvline(x=best_inflation, linestyle='--', color='lightgrey')
+        plt.axhline(y=best_modularity, linestyle='--', color='lightgrey')
+        plt.xlabel("Inflation")
+        plt.ylabel("Modularity")
+        plt.title("Inflation vs. Modularity")
+        plt.grid(False)
+        plt.tight_layout()
+        plt.legend()
+        plt.show()
+    
     return best_inflation, best_modularity
 
 
