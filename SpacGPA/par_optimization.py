@@ -300,7 +300,7 @@ def find_best_inflation(ggm, min_inflation=1.1, max_inflation=5,
         coarse_results.append((inflation_val, Q))
         global_inflations.append(inflation_val)
         global_modularities.append(Q)
-        print(f"Inflation = {inflation_val:.2f}, Modularity = {Q:.4f}")
+        #print(f"Inflation = {inflation_val:.2f}, Modularity = {Q:.4f}")
         
         # Check the first three evaluations.
         if len(coarse_results) == 1:
@@ -362,7 +362,7 @@ def find_best_inflation(ggm, min_inflation=1.1, max_inflation=5,
         if inflation_val not in global_inflations:
             global_inflations.append(inflation_val)
             global_modularities.append(Q)
-        print(f"Inflation = {inflation_val:.2f}, Modularity = {Q:.4f}")
+        #print(f"Inflation = {inflation_val:.2f}, Modularity = {Q:.4f}")
     
     max_mid = max(mid_results, key=lambda x: x[1])[0]
     print(f"Mid-step search best inflation: {max_mid:.2f}")
@@ -402,7 +402,7 @@ def find_best_inflation(ggm, min_inflation=1.1, max_inflation=5,
         if inflation_val not in global_inflations:
             global_inflations.append(inflation_val)
             global_modularities.append(Q)
-        print(f"Inflation = {inflation_val:.2f}, Modularity = {Q:.4f}")
+        #print(f"Inflation = {inflation_val:.2f}, Modularity = {Q:.4f}")
     
     best_inflation, best_modularity = max(fine_results, key=lambda x: x[1])
     print(f"\nBest inflation (Phase 3): {best_inflation:.2f}, Modularity: {best_modularity:.4f}")

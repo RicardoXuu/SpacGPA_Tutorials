@@ -176,6 +176,7 @@ class create_ggm:
                 if auto_adjust:
                     self.adjust_cutoff(pcor_threshold=round(min_pcor, 3),
                                         coex_cell_threshold=self.cut_off_coex_cell) 
+                    
         if auto_find_modules:
             best_inflation, _ = find_best_inflation(self, 
                                                     min_inflation=1.1, max_inflation=10,

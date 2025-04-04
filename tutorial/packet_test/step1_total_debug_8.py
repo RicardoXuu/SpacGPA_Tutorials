@@ -46,6 +46,12 @@ print(ggm_mulit_intersection)
 print("=====================================")
 print(ggm_mulit_union)
 
+
+# %%
+ggm.round_num
+
+
+
 # %%
 # 读取数据
 adata = sc.read_visium("/dta/ypxu/ST_GGM/VS_Code/ST_GGM_dev_1/data/visium/CytAssist_FreshFrozen_Mouse_Brain_Rep2",
@@ -513,7 +519,7 @@ sc.pp.filter_genes(adata,min_cells=10)
 print(adata.X.shape)
 
 # %%
-ggm = sg.create_ggm(adata,
+ggm_1 = sg.create_ggm(adata,
                     project_name = "CytAssist_FreshFrozen_Mouse_Brain_Rep2", 
                     run_mode=2, 
                     double_precision=False,
@@ -525,10 +531,225 @@ ggm = sg.create_ggm(adata,
                     auto_adjust=True,
                     auto_find_modules=True,
                     )  
-print(ggm.SigEdges)
-# %%
+print(ggm_1.SigEdges)
 
+# %%
+ggm_2 = sg.create_ggm(adata,
+                    project_name = "CytAssist_FreshFrozen_Mouse_Brain_Rep2", 
+                    run_mode=2, 
+                    double_precision=False,
+                    use_chunking=True,
+                    chunk_size=10000,
+                    stop_threshold=0,
+                    FDR_control=True,
+                    FDR_threshold=0.05,
+                    auto_adjust=True,
+                    auto_find_modules=True,
+                    )  
+print(ggm_2.SigEdges)
+
+# %%
+ggm_3 = sg.create_ggm(adata,
+                    project_name = "CytAssist_FreshFrozen_Mouse_Brain_Rep2", 
+                    run_mode=2, 
+                    double_precision=False,
+                    use_chunking=True,
+                    chunk_size=10000,
+                    stop_threshold=0,
+                    FDR_control=True,
+                    FDR_threshold=0.05,
+                    auto_adjust=True,
+                    auto_find_modules=True,
+                    )  
+print(ggm_3.SigEdges)
+
+# %%
+ggm_4 = sg.create_ggm(adata,
+                    project_name = "CytAssist_FreshFrozen_Mouse_Brain_Rep2", 
+                    run_mode=2, 
+                    double_precision=False,
+                    use_chunking=True,
+                    chunk_size=10000,
+                    stop_threshold=0,
+                    FDR_control=True,
+                    FDR_threshold=0.05,
+                    auto_adjust=True,
+                    auto_find_modules=True,
+                    )  
+print(ggm_4.SigEdges)
 
 # %%
 ggm.modules_summary
+
+# %%
+ggm_1.modules_summary
+
+# %%
+ggm_2.modules_summary
+
+# %%
+ggm_3.modules_summary
+
+# %%
+ggm_4.modules_summary
+
+# %%
+ggm_1
+# %%
+ggm_2
+# %%
+ggm_3           
+# %%
+ggm_4
+# %%
+
+# %%
+
+
+# %%
+# 重新读取数据
+adata = sc.read_visium("/dta/ypxu/ST_GGM/VS_Code/ST_GGM_dev_1/data/visium/CytAssist_FreshFrozen_Mouse_Brain_Rep2",
+                       count_file="CytAssist_FreshFrozen_Mouse_Brain_Rep2_filtered_feature_bc_matrix.h5")
+adata.var_names_make_unique()
+adata.var_names = adata.var['gene_ids']
+sc.pp.normalize_total(adata, target_sum=1e4)
+sc.pp.log1p(adata)
+print(adata.X.shape)
+
+# %%
+sg.annotate_with_ggm(adata, ggm_1,
+                     ggm_key='ggm_1')
+# %%
+sg.annotate_with_ggm(adata, ggm_2,
+                     ggm_key='ggm_2')
+# %%
+sg.annotate_with_ggm(adata, ggm_3,
+                     ggm_key='ggm_3')
+# %%
+sg.annotate_with_ggm(adata, ggm_4,
+                     ggm_key='ggm_4')
+
+# %%
+
+# %%
+
+# %%
+ggm_1.adjust_cutoff(pcor_threshold=0.075)
+best_inf_1, _ = sg.find_best_inflation(ggm_1, min_inflation=1.1, phase=3, show_plot=True)
+ggm_1.find_modules(methods='mcl-hub', 
+                        expansion=2, inflation=best_inf_1, max_iter=1000, tol=1e-6, pruning_threshold=1e-5,
+                        min_module_size=10, topology_filtering=False, 
+                        convert_to_symbols=True, species='mouse')
+print(ggm_1.modules_summary.shape)
+sg.annotate_with_ggm(adata, ggm_1,
+                     ggm_key='ggm_1')
+sg.integrate_annotations(adata,
+                        ggm_key='ggm_1',
+                        result_anno='annotation_1',
+                        use_smooth=True,
+                        embedding_key='spatial',
+                        k_neighbors=24,
+                        neighbor_similarity_ratio=0,
+                        )
+sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "", frameon = False, color="annotation_1", show=True)
+
+# %%
+sg.integrate_annotations(adata,
+                        ggm_key='ggm_2',
+                        result_anno='annotation_2',
+                        use_smooth=True,
+                        embedding_key='spatial',
+                        k_neighbors=24,
+                        neighbor_similarity_ratio=0,
+                        )
+sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "", frameon = False, color="annotation_2", show=True)
+
+# %%
+sg.integrate_annotations(adata,
+                        ggm_key='ggm_3',
+                        result_anno='annotation_3',
+                        use_smooth=True,
+                        embedding_key='spatial',
+                        k_neighbors=24,
+                        neighbor_similarity_ratio=0,
+                        )
+sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "", frameon = False, color="annotation_3", show=True)
+
+# %%
+sg.integrate_annotations(adata,
+                        ggm_key='ggm_4',
+                        result_anno='annotation_4',
+                        use_smooth=True,
+                        embedding_key='spatial',
+                        k_neighbors=24,
+                        neighbor_similarity_ratio=0,
+                        )       
+sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "", frameon = False, color="annotation_4",
+              na_color="black", show=True)
+# %%
+
+
+
+
+
+
+
+
+
+# %%
+
+# %%
+# 读取空转数据
+adata = sc.read_h5ad("/dta/ypxu/ST_GGM/VS_Code/ST_GGM_dev_1/data/MOSTA/E16.5_E1S1.MOSTA.h5ad")
+adata.var_names_make_unique()
+print(adata.X.shape)
+
+sc.pp.filter_cells(adata, min_genes=1000)
+print(adata.X.shape)
+
+sc.pp.filter_genes(adata, min_cells=10)
+print(adata.X.shape)
+
+# %%
+ggm_1 = sg.create_ggm(adata,
+                    project_name = "E16.5_E1S1", 
+                    run_mode=2, 
+                    double_precision=False,
+                    use_chunking=True,
+                    chunk_size=10000,
+                    stop_threshold=0,
+                    FDR_control=True,
+                    FDR_threshold=0.01,
+                    auto_adjust=True,
+                    auto_find_modules=True,
+                    )  
+print(ggm_1.SigEdges)
+
+# %%
+# 重新读取数据
+adata = sc.read_h5ad("/dta/ypxu/ST_GGM/VS_Code/ST_GGM_dev_1/data/MOSTA/E16.5_E1S1.MOSTA.h5ad")
+adata.var_names_make_unique()
+print(adata.X.shape)
+
+# %%
+#ggm_1.adjust_cutoff(pcor_threshold=0.02)
+best_inf_1, _ = sg.find_best_inflation(ggm_1, min_inflation=1.1, phase=3, show_plot=True)
+ggm_1.find_modules(methods='mcl-hub', 
+                        expansion=2, inflation=best_inf_1, max_iter=1000, tol=1e-6, pruning_threshold=1e-5,
+                        min_module_size=10, topology_filtering=False, 
+                        convert_to_symbols=True, species='mouse')
+print(ggm_1.modules_summary.shape)
+
+# %%
+sg.annotate_with_ggm(adata, ggm_1,
+                     ggm_key='ggm_1')
+sg.integrate_annotations(adata,
+                        ggm_key='ggm_1',
+                        result_anno='annotation_1',
+                        use_smooth=True,
+                        embedding_key='spatial',
+                        k_neighbors=24,
+                        neighbor_similarity_ratio=0,
+                        )
+sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation_1", show=True)
 # %%
