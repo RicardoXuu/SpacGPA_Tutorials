@@ -752,13 +752,44 @@ sg.integrate_annotations(adata,
                         neighbor_similarity_ratio=0,
                         )
 sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation_1", show=True)
+
+# %%
+
+# %%
+sg.classify_modules(adata, 
+                 ggm_key='ggm_1',
+                 ref_anno='annotation',
+                 #ref_cluster_method='leiden', 
+                 #ref_cluster_method='none',  
+                 #ref_cluster_resolution=0.5, 
+                 skew_threshold=2,
+                 top1pct_threshold=2,
+                 Moran_I_threshold=0.2,
+                 min_dominant_cluster_fraction=0.3,
+                 anno_overlap_threshold=0.4)
+
+
+# %%
+adata.uns['ggm_1_module_filtering']['type_tag'].value_counts()
+
+# %%
+adata.uns['ggm_1_module_filtering']['type_tag']
+
+# %%
+adata.uns['ggm_1_module_filtering'][adata.uns['ggm_1_module_filtering']['type_tag'] == "mixed_regional_module"]['module_id'].values
+
+
 # %%
 sg.integrate_annotations(adata,
                         ggm_key='ggm_1',
+                        #modules_excluded=adata.uns['ggm_1_module_filtering'][adata.uns['ggm_1_module_filtering']['type_tag'] == "diffuse_module"]['module_id'].values,
+                        modules_excluded=['ggm_1_M12', 'ggm_1_M2', 'ggm_1_M23', 'ggm_1_M27', 'ggm_1_M36',
+       'ggm_1_M9'],
                         result_anno='annotation_2',
                         use_smooth=True,
                         embedding_key='spatial',
                         k_neighbors=24,
-                        neighbor_similarity_ratio=0,
+                        neighbor_similarity_ratio=0.9,
                         )
-sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation_1", show=True)
+sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation_2", show=True)
+# %%
