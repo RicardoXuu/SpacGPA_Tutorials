@@ -732,7 +732,7 @@ adata.var_names_make_unique()
 print(adata.X.shape)
 
 # %%
-#ggm_1.adjust_cutoff(pcor_threshold=0.02)
+ggm_1.adjust_cutoff(pcor_threshold=0.02)
 best_inf_1, _ = sg.find_best_inflation(ggm_1, min_inflation=1.1, phase=3, show_plot=True)
 ggm_1.find_modules(methods='mcl-hub', 
                         expansion=2, inflation=best_inf_1, max_iter=1000, tol=1e-6, pruning_threshold=1e-5,
@@ -753,3 +753,12 @@ sg.integrate_annotations(adata,
                         )
 sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation_1", show=True)
 # %%
+sg.integrate_annotations(adata,
+                        ggm_key='ggm_1',
+                        result_anno='annotation_2',
+                        use_smooth=True,
+                        embedding_key='spatial',
+                        k_neighbors=24,
+                        neighbor_similarity_ratio=0,
+                        )
+sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation_1", show=True)
