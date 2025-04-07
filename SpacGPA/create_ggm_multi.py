@@ -14,7 +14,7 @@ from .module_show import get_module_edges as get_edges
 from .module_show import get_module_anno as get_anno
 from .enrich_analysis import go_enrichment_analysis as run_go
 from .enrich_analysis import mp_enrichment_analysis as run_mp
-
+from .par_optimization import find_best_inflation
 
 class create_ggm_multi:   
     def __init__(self, adata_list, method="intersection", round_num=None, selected_num=None, target_sampling_time=100, 
@@ -22,7 +22,8 @@ class create_ggm_multi:
                  cut_off_pcor=0.03, cut_off_coex_cell=10,  
                  use_chunking=True, chunk_size=5000, 
                  seed=98, run_mode=2, double_precision=False, stop_threshold=0,
-                 FDR_control=False, FDR_threshold=0.01, auto_adjust=False):
+                 FDR_control=False, FDR_threshold=0.01, auto_adjust=False,
+                 auto_find_modules=False):
         """
         Instruction:  
         Class to create a ggm object for multiple datasets analysis.     
@@ -59,7 +60,8 @@ class create_ggm_multi:
         FDR_control: optional, default as False. Whether to perform FDR control automatically.
         FDR_threshold: optional, default as 0.01. The FDR threshold for filtering significant edges. only used when FDR_control is True.
         auto_adjust: optional, default as False. Whether to adjust the cutoff based on FDR results. only used when FDR_control is True.
-        
+        auto_find_modules: optional, default as False. Whether to automatically find modules based on the significant edges.
+                           Note: This parameter is only supported with methods='mcl-hub'.
         """
         self.method = method
         self.matrix = None
@@ -83,6 +85,7 @@ class create_ggm_multi:
         self.FDR_control = FDR_control
         self.FDR_threshold = FDR_threshold
         self.auto_adjust = auto_adjust
+        self.auto_find_modules = auto_find_modules
 
         self.coexpressed_cell_num = None
         self.pcor_all = None
@@ -160,7 +163,20 @@ class create_ggm_multi:
                 if auto_adjust:
                     self.adjust_cutoff(pcor_threshold=round(min_pcor, 3),
                                         coex_cell_threshold=self.cut_off_coex_cell) 
-        
+       
+        if auto_find_modules:
+            best_inflation, _ = find_best_inflation(self, 
+                                                    min_inflation=1.1, max_inflation=10,
+                                                    coarse_step=0.1, mid_step=0.05, fine_step=0.01,
+                                                    expansion=2, add_self_loops='mean', max_iter=1000,
+                                                    tol=1e-6, pruning_threshold=1e-5, run_mode=self.run_mode,
+                                                    phase=3, show_plot=False)
+            self.find_modules(methods='mcl-hub', 
+                              expansion=2, inflation=best_inflation, add_self_loops='mean', 
+                              max_iter=1000, tol=1e-6, pruning_threshold=1e-5,
+                              min_module_size=10, topology_filtering=True, convert_to_symbols=False)         
+        torch.cuda.empty_cache() 
+
         print("\nTask completed. Resources released.")
     
     def __repr__(self):
@@ -171,7 +187,6 @@ class create_ggm_multi:
         s += f"  Used Gene Number: {self.gene_num}\n"
         s += f"  Overall Sample Number: {self.samples_num}\n"
         s += f"  Pcor Thereshold: {self.cut_off_pcor}\n"
-        s += f"  Coexpressed Cells Number Thereshold: {self.cut_off_coex_cell}\n"
         s += "\nResults:\n"
         if self.SigEdges is not None:
             s += f"  SigEdges: DataFrame with {self.SigEdges.shape[0]} significant gene pairs\n"
@@ -528,7 +543,7 @@ class create_ggm_multi:
         self.SigEdges = pd.DataFrame({'GeneA': e1, 'GeneB': e2, 'Pcor': e3, 'SamplingTime': e4,
                                         'r': e5, 'Cell_num_A': e1n, 'Cell_num_B': e2n,
                                         'Cell_num_coexpressed': e6, 'Project': e7})
-        print("Found", self.SigEdges.shape[0], "significant co-expressed gene pairs with partial correlation >=", cut_off_pcor, "and co-expressed cell number >=", cut_off_coex_cell)
+        print("Found", self.SigEdges.shape[0], "significant co-expressed gene pairs with partial correlation >=", cut_off_pcor)
 
     def find_modules(self, methods='mcl-hub', 
                     expansion=2, inflation=1.7, add_self_loops='mean', 

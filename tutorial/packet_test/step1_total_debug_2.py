@@ -80,10 +80,10 @@ SigEdges_mulit_intersection = ggm_mulit_intersection.SigEdges
 print(f"Time: {time.time() - start_time:.5f} s")
 
 # %%
-sg.save_ggm(ggm_mulit_intersection, "data/ggm_mulit_intersection.h5")
+sg.save_ggm(ggm_mulit_intersection, "data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm_mulit_intersection.h5")
 del ggm_mulit_intersection
 gc.collect()
-ggm_mulit_intersection = sg.load_ggm("data/ggm_mulit_intersection.h5")
+ggm_mulit_intersection = sg.load_ggm("data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm_mulit_intersection.h5")
 ggm_mulit_intersection
 
 # %%
@@ -92,10 +92,10 @@ ggm_mulit_intersection.fdr_control()
 print(f"Time: {time.time() - start_time:.5f} s")
 
 # %%
-sg.save_ggm(ggm_mulit_intersection, "data/ggm_mulit_intersection.h5")
+sg.save_ggm(ggm_mulit_intersection, "data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm_mulit_intersection.h5")
 del ggm_mulit_intersection
 gc.collect()
-ggm_mulit_intersection = sg.load_ggm("data/ggm_mulit_intersection.h5")
+ggm_mulit_intersection = sg.load_ggm("data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm_mulit_intersection.h5")
 ggm_mulit_intersection
 
 # %%
@@ -115,10 +115,10 @@ print(ggm_mulit_intersection.modules_summary)
 ggm_mulit_intersection.modules
 
 # %%
-sg.save_ggm(ggm_mulit_intersection, "data/ggm_mulit_intersection.h5")
+sg.save_ggm(ggm_mulit_intersection, "data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm_mulit_intersection.h5")
 del ggm_mulit_intersection
 gc.collect()
-ggm_mulit_intersection = sg.load_ggm("data/ggm_mulit_intersection.h5")
+ggm_mulit_intersection = sg.load_ggm("data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm_mulit_intersection.h5")
 ggm_mulit_intersection
 
 # %%
@@ -128,10 +128,10 @@ ggm_mulit_intersection.go_enrichment_analysis(species='mouse',padjust_method="BH
 ggm_mulit_intersection.go_enrichment
 
 # %%
-sg.save_ggm(ggm_mulit_intersection, "data/ggm_mulit_intersection.h5")
+sg.save_ggm(ggm_mulit_intersection, "data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm_mulit_intersection.h5")
 del ggm_mulit_intersection
 gc.collect()
-ggm_mulit_intersection = sg.load_ggm("data/ggm_mulit_intersection.h5")
+ggm_mulit_intersection = sg.load_ggm("data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm_mulit_intersection.h5")
 ggm_mulit_intersection
 
 # %%
@@ -141,10 +141,10 @@ ggm_mulit_intersection.mp_enrichment_analysis(species='mouse',padjust_method="BH
 ggm_mulit_intersection.mp_enrichment
 
 # %%
-sg.save_ggm(ggm_mulit_intersection, "data/ggm_mulit_intersection.h5")
+sg.save_ggm(ggm_mulit_intersection, "data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm_mulit_intersection.h5")
 del ggm_mulit_intersection
 gc.collect()
-ggm_mulit_intersection = sg.load_ggm("data/ggm_mulit_intersection.h5")
+ggm_mulit_intersection = sg.load_ggm("data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm_mulit_intersection.h5")
 ggm_mulit_intersection
 
 
@@ -158,10 +158,10 @@ M1_anno = sg.get_module_anno(ggm_mulit_intersection, "M001", add_enrich_info=Tru
 
 
 # %%
-sg.save_ggm(ggm_mulit_intersection, "data/ggm_mulit_intersection.h5")
+sg.save_ggm(ggm_mulit_intersection, "data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm_mulit_intersection.h5")
 del ggm_mulit_intersection
 gc.collect()
-ggm_mulit_intersection = sg.load_ggm("data/ggm_mulit_intersection.h5")
+ggm_mulit_intersection = sg.load_ggm("data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm_mulit_intersection.h5")
 ggm_mulit_intersection
 
 # %%
@@ -193,10 +193,10 @@ SigEdges_gpu_32 = ggm_mulit_union.SigEdges
 print(f"Time: {time.time() - start_time:.5f} s")
 
 # %%
-sg.save_ggm(ggm_mulit_union, "data/ggm_mulit_union.h5")
+sg.save_ggm(ggm_mulit_union, "data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm_mulit_union.h5")
 del ggm_mulit_union
 gc.collect()
-ggm_mulit_union = sg.load_ggm("data/ggm_mulit_union.h5")
+ggm_mulit_union = sg.load_ggm("data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm_mulit_union.h5")
 ggm_mulit_union
 
 
@@ -206,10 +206,10 @@ ggm_mulit_union.fdr_control()
 print(f"Time: {time.time() - start_time:.5f} s")
 
 # %%
-sg.save_ggm(ggm_mulit_union, "data/ggm_mulit_union.h5")
+sg.save_ggm(ggm_mulit_union, "data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm_mulit_union.h5")
 del ggm_mulit_union
 gc.collect()
-ggm_mulit_union = sg.load_ggm("data/ggm_mulit_union.h5")
+ggm_mulit_union = sg.load_ggm("data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm_mulit_union.h5")
 ggm_mulit_union
 
 # %%
@@ -229,10 +229,10 @@ print(ggm_mulit_union.modules_summary)
 ggm_mulit_union.modules
 
 # %%
-sg.save_ggm(ggm_mulit_union, "data/ggm_mulit_union.h5")
+sg.save_ggm(ggm_mulit_union, "data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm_mulit_union.h5")
 del ggm_mulit_union
 gc.collect()
-ggm_mulit_union = sg.load_ggm("data/ggm_mulit_union.h5")
+ggm_mulit_union = sg.load_ggm("data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm_mulit_union.h5")
 ggm_mulit_union
 
 # %%
@@ -242,10 +242,10 @@ ggm_mulit_union.go_enrichment_analysis(species='mouse',padjust_method="BH",pvalu
 ggm_mulit_union.go_enrichment
 
 # %%
-sg.save_ggm(ggm_mulit_union, "data/ggm_mulit_union.h5")
+sg.save_ggm(ggm_mulit_union, "data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm_mulit_union.h5")
 del ggm_mulit_union
 gc.collect()
-ggm_mulit_union = sg.load_ggm("data/ggm_mulit_union.h5")
+ggm_mulit_union = sg.load_ggm("data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm_mulit_union.h5")
 ggm_mulit_union
 
 # %%
@@ -255,10 +255,10 @@ ggm_mulit_union.mp_enrichment_analysis(species='mouse',padjust_method="BH",pvalu
 ggm_mulit_union.mp_enrichment
 
 # %%
-sg.save_ggm(ggm_mulit_union, "data/ggm_mulit_union.h5")
+sg.save_ggm(ggm_mulit_union, "data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm_mulit_union.h5")
 del ggm_mulit_union
 gc.collect()
-ggm_mulit_union = sg.load_ggm("data/ggm_mulit_union.h5")
+ggm_mulit_union = sg.load_ggm("data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm_mulit_union.h5")
 ggm_mulit_union
 
 
@@ -272,10 +272,10 @@ M1_anno = sg.get_module_anno(ggm_mulit_union, "M001", add_enrich_info=True, top_
 
 
 # %%
-sg.save_ggm(ggm_mulit_union, "data/ggm_mulit_union.h5")
+sg.save_ggm(ggm_mulit_union, "data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm_mulit_union.h5")
 del ggm_mulit_union
 gc.collect()
-ggm_mulit_union = sg.load_ggm("data/ggm_mulit_union.h5")
+ggm_mulit_union = sg.load_ggm("data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm_mulit_union.h5")
 ggm_mulit_union
 
 # %%

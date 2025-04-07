@@ -205,7 +205,7 @@ def calculate_module_expression(adata,
     
     # Remove existing module-related columns in adata.obs
     for col in list(adata.obs.columns):
-        if col.startswith(f'{col_prefix}M') and (col.endswith('_exp') or col.endswith('_anno') or col.endswith('_anno_smooth')):
+        if col.startswith(f'{col_prefix}M') and (col.endswith('_exp') or col.endswith('_exp_trim') or col.endswith('_anno') or col.endswith('_anno_smooth')):
             adata.obs.drop(columns=col, inplace=True)
 
     # 6. Construct a transformation matrix
@@ -372,6 +372,10 @@ def calculate_gmm_annotations(adata,
     for col in list(adata.obs.columns):
         if col.endswith('_anno') and any(col.startswith(mid) for mid in valid_modules):
             adata.obs.drop(columns=col, inplace=True)
+        if col.endswith('_exp_trim') and any(col.startswith(mid) for mid in valid_modules):
+            adata.obs.drop(columns=col, inplace=True)
+        if col.endswith('_anno_smooth') and any(col.startswith(mid) for mid in valid_modules):
+            adata.obs.drop(columns=col, inplace=True)    
     
     # Initialize annotation matrix (0/1) for modules
     anno_cols = valid_modules
@@ -631,6 +635,14 @@ def calculate_gmm_annotations(adata,
         annotations[col] = pd.Categorical(annotations[col])
     adata.obs = pd.concat([adata.obs, annotations], axis=1)
     
+    # Add trimmed expression columns which are 0 if the annotation is None for this module
+    for mod in valid_modules:
+        exp_col = f"{mod}_exp"
+        anno_col = f"{mod}_anno"
+        trim_col = f"{mod}_exp_trim"
+        if exp_col in adata.obs.columns and anno_col in adata.obs.columns:
+            adata.obs[trim_col] = adata.obs.apply(lambda row: row[exp_col] if row[anno_col] == mod else 0, axis=1)
+
     # Add GO annotations to module_stats_key 
     stats_records_df = pd.DataFrame(stats_records)
     module_info_df = adata.uns[mod_info_key]
