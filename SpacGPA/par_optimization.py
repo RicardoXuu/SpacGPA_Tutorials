@@ -207,6 +207,7 @@ def find_best_inflation(ggm, min_inflation=1.1, max_inflation=5,
                         coarse_step=0.1, mid_step=0.05, fine_step=0.01,
                         expansion=2, add_self_loops='mean', max_iter=1000,
                         tol=1e-6, pruning_threshold=1e-5, run_mode=2,
+                        min_module_size=10,
                         phase=3, show_plot=False):
     """
     Optimize the inflation parameter for MCL clustering using SigEdges data by 
@@ -269,16 +270,24 @@ def find_best_inflation(ggm, min_inflation=1.1, max_inflation=5,
                                 add_self_loops=add_self_loops, max_iter=max_iter, 
                                 tol=tol, pruning_threshold=pruning_threshold, 
                                 run_mode=run_mode)
+        
+        sorted_clusters = sorted(clusters, key=lambda comp: len(comp), reverse=True)
+        filtered_clusters = [cluster for cluster in sorted_clusters if len(cluster) >= min_module_size]
+        filtered_clustered_nodes = set().union(*filtered_clusters)
+        G_sub = G_ori.subgraph(filtered_clustered_nodes)
+
         # Ensure all nodes are assigned (unassigned nodes become singleton communities).
-        all_nodes = set(G_ori.nodes())
-        clustered_nodes = set().union(*clusters)
-        missing_nodes = all_nodes - clustered_nodes
-        for node in missing_nodes:
-            clusters.append({node})
-        if len(clusters) <= 1:
+        # all_nodes = set(G_ori.nodes())
+        # clustered_nodes = set().union(*clusters)
+        # missing_nodes = all_nodes - clustered_nodes
+        # for node in missing_nodes:
+        #     clusters.append({node})
+
+        if len(filtered_clusters) <= 1:
             Q = 0.0
         else:
-            Q = nx.algorithms.community.modularity(G_ori, clusters, weight='weight')
+            #Q = nx.algorithms.community.modularity(G_ori, clusters, weight='weight')
+            Q = nx.algorithms.community.modularity(G_sub, filtered_clusters, weight='weight',resolution=2)
         eval_cache[inflation] = Q
         return Q
 
