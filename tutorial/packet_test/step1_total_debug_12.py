@@ -119,7 +119,6 @@ palette_hex = ['#{:02x}{:02x}{:02x}'.format(int(r*255), int(g*255), int(b*255))
 # Build the dictionary mapping modules "M1" to "M39" to colors
 color_dict = {f"M{i+1}": palette_hex[i] for i in range(41)}
 
-
 # %%
 sg.integrate_annotations(adata,
                         ggm_key='ggm',
@@ -368,7 +367,6 @@ def integrate_annotations_improved(
     # Write final labels to adata.obs
     sorted_modules = sorted(modules_used, key=lambda x: int(x.lstrip('M')))
     adata.obs[result_anno] = pd.Categorical(final_labels, categories=sorted_modules, ordered=True)
-
 
 
 # %%
