@@ -151,7 +151,7 @@ def integrate_annotations_improved(
     use_smooth=True,
     embedding_key='spatial',
     k_neighbors=24,
-    neighbor_threshold=0.8,       # Threshold for neighbor support in voting
+    neighbor_threshold=0.8,         # Threshold for neighbor support in voting
     enable_propagation=True,        # Flag to enable label propagation/smoothing
     propagation_iterations=2,       # Number of iterations for label propagation
     propagation_weight=0.5,         # Weight for neighbor influence during propagation (gamma)
