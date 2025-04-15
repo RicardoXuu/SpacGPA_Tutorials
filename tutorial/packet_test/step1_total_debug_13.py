@@ -373,6 +373,7 @@ integrate_annotations_improved(
     ggm_key='ggm',
     cross_ggm=False,
     modules_used=None,
+    modules_excluded=['M15','M18'],
     modules_preferred=None,
     result_anno='annotation_new_1',
     use_smooth=True,
@@ -670,6 +671,11 @@ integrate_annotations_improved(adata,
 # %%
 sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "annotation_new_2", frameon = False, color="annotation_new_2",  
               palette=color_dict, show=True)
+
+# %%
+sc.pl.spatial(adata, size=1.6, alpha_img=0.5, frameon = False, color_map="Reds", ncols=5, 
+              color=['graph_cluster', 'kmeans_10_clusters', 'annotation', 'annotation_new_1', 'annotation_new_2'],
+              show=True, save = "/CytAssist_FreshFrozen_Mouse_Brain_Rep2_integrate_methods_.pdf")
 
 
 # %%
