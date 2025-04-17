@@ -103,6 +103,11 @@ sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "louvan_0.5_ggm", frame
 sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "louvan_1_ggm", frameon = False, color="louvan_1_ggm", show=True)
 
 # %%
+sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "graph_cluster", frameon = False, color="graph_cluster", show=True,
+              save="/graph_cluster.pdf")
+
+
+# %%
 # 设计配色
 cmap1 = list(plt.get_cmap('tab20').colors)  
 cmap2 = list(plt.get_cmap('tab20b').colors)  
@@ -131,6 +136,11 @@ sg.integrate_annotations(adata,
                         )
 sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "annotation", frameon = False, color="annotation",  
               palette=color_dict, show=True)
+
+# %%
+sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "annotation", frameon = False, color="annotation",  
+              palette=color_dict, show=True,
+              save="/annotation.pdf")
 
 
 # %%
@@ -414,6 +424,10 @@ integrate_annotations_improved_1(
 sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "annotation_new_1", frameon = False, color="annotation_new_1",  
               palette=color_dict, show=True)
 
+# %%
+sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "annotation_new_1", frameon = False, color="annotation_new_1",  
+              palette=color_dict, show=True,
+              save="/annotation_new_1.pdf")
 
 
 # %%
@@ -723,15 +737,258 @@ sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "annotation_new_2", fra
               palette=color_dict, show=True)
 
 # %%
-sc.pl.spatial(adata, size=1.6, alpha_img=0.5, frameon = False, color_map="Reds", ncols=5, 
-              color=['graph_cluster', 'kmeans_10_clusters', 'annotation', 'annotation_new_1', 'annotation_new_2'],
-              #save = "/CytAssist_FreshFrozen_Mouse_Brain_Rep2_integrate_methods_.pdf",
-              show=True)
+sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "annotation_new_2", frameon = False, color="annotation_new_2",  
+              palette=color_dict, show=True,
+              save="/annotation_new_2.pdf")
 
 
 # %%
-adata.uns['module_stats'][adata.uns['module_stats']['positive_moran_I']>=0.5]['module_id'].unique()
+sc.pl.spatial(adata, size=1.6, alpha_img=0.5, frameon = False, color_map="Reds", ncols=5, 
+              color=['graph_cluster', 'kmeans_10_clusters', 'annotation', 'annotation_new_1', 'annotation_new_2'],
+              show=True, save = "/CytAssist_FreshFrozen_Mouse_Brain_Rep2_integrate_methods_.pdf")
 
+
+
+
+
+
+# %%
+# 方案3
+import random
+import numpy as np
+import pandas as pd
+import networkx as nx
+from igraph import Graph
+import leidenalg
+from sklearn.neighbors import NearestNeighbors, KernelDensity
+from scipy.stats import rankdata
+
+# ------------------------------------------------------------------ #
+#        Density‑aware, anchor‑protected KNN‑CRF smoothing           #
+# ------------------------------------------------------------------ #
+def integrate_annotations_density(
+        adata,
+        ggm_key="ggm",
+        modules_used=None,
+        modules_excluded=None,
+        modules_preferred=None,
+        result_anno="anno_density",
+        # ---------- spatial graph ------------------------------- #
+        embedding_key="spatial",
+        k_neighbors=24,
+        sigma=None,
+        # ---------- unary components ---------------------------- #
+        alpha=0.4,          # vote
+        beta=0.3,           # expression rank
+        gamma=0.3,          # density term
+        delta=0.4,          # low‑weight penalty
+        # ---------- pairwise Potts ------------------------------ #
+        lambda_pair=0.3,
+        # ---------- anchor settings ----------------------------- #
+        anchor_top_pct=5,       # top 5% rank = anchor
+        anchor_vote_thr=0.6,    # neighbour vote ≥ 0.6
+        dens_bandwidth=None,    # KDE bandwidth
+        # ---------- dynamic weight ------------------------------ #
+        lr=0.1,
+        target_purity=0.8,
+        w_floor=0.3,
+        w_ceil=1.0,
+        # ---------- optimisation loop --------------------------- #
+        max_iter=60,
+        energy_tol=1e-3,
+        p0=0.1,
+        tau=8.0,
+        random_state=None):
+
+    rng = random.Random(random_state)
+
+    if embedding_key not in adata.obsm:
+        raise KeyError(f"{embedding_key} missing")
+    if ggm_key not in adata.uns["ggm_keys"]:
+        raise KeyError(f"{ggm_key} missing in adata.uns")
+
+    # -------- modules list ----------------------------------- #
+    mod_stats_key = adata.uns["ggm_keys"][ggm_key]["module_stats"]
+    if modules_used is None:
+        modules_used = list(pd.unique(adata.uns[mod_stats_key]["module_id"]))
+    if modules_excluded:
+        modules_used = [m for m in modules_used if m not in modules_excluded]
+
+    # -------- KNN -------------------------------------------- #
+    X = adata.obsm[embedding_key]
+    n = adata.n_obs
+    k = k_neighbors + 1
+    knn = NearestNeighbors(n_neighbors=k).fit(X)
+    dist, idx = knn.kneighbors(X)
+    if sigma is None:
+        sigma = max(np.mean(dist[:, 1:]), 1e-6)
+    W = np.exp(-(dist ** 2) / sigma ** 2)
+    lam = lambda_pair * W[:, 1:]
+
+    # -------- anno / rank / anchor --------------------------- #
+    anno, rank_norm, anchor = {}, {}, {}
+    for m in modules_used:
+        col = f"{m}_anno_smooth" if f"{m}_anno_smooth" in adata.obs else f"{m}_anno"
+        if col not in adata.obs:
+            raise KeyError(f"{col} missing")
+        lab = (adata.obs[col] == m).astype(int).values
+        anno[m] = lab
+
+        r = rankdata(-adata.obs[f"{m}_exp"].values, method="dense")  # 1=最高表达
+        rank_norm[m] = (r - 1) / (n - 1)
+
+        # neighbour vote
+        vote_arr = np.zeros(n)
+        for i in range(n):
+            nb = idx[i, 1:]
+            w_sum = W[i, 1:].sum()
+            if w_sum:
+                vote_arr[i] = (W[i, 1:] * lab[nb]).sum() / w_sum
+
+        thresh_rank = np.percentile(r, anchor_top_pct)
+        anchor[m] = (r <= thresh_rank) & (vote_arr >= anchor_vote_thr)
+
+    # -------- KDE density ------------------------------------ #
+    dens_log = {}
+    for m in modules_used:
+        pts = X[anno[m] == 1]
+        if len(pts) < 3:        # 不够点就给常数
+            dens_log[m] = np.zeros(n)
+            continue
+        bw = dens_bandwidth or "scott"
+        kde = KernelDensity(bandwidth=bw).fit(pts)
+        dens_log[m] = -kde.score_samples(X)     # ‒log p̂
+
+    # -------- helpers ---------------------------------------- #
+    w_mod = {m: 1.0 for m in modules_used}
+
+    def unary(i, m):
+        # vote
+        nb = idx[i, 1:]
+        w_sum = W[i, 1:].sum()
+        if w_sum:
+            v = (W[i, 1:] * anno[m][nb]).sum() / w_sum
+        else:
+            v = 0.0
+        v *= w_mod[m]
+        return (alpha * (1 - v) +
+                beta * rank_norm[m][i] +
+                gamma * dens_log[m][i] +
+                delta * (1 - w_mod[m]))
+
+    # -------- initial label (respect anchors) ---------------- #
+    label = np.empty(n, dtype=object)
+    for i in range(n):
+        cand = [m for m in modules_used if anno[m][i]] or modules_used
+        if modules_preferred:
+            pref = [m for m in cand if m in modules_preferred]
+            cand = pref or cand
+        best = min(cand, key=lambda m: unary(i, m))
+        label[i] = best
+
+    # keep anchor fixed
+    anchor_mask = np.zeros(n, dtype=bool)
+    for m in modules_used:
+        anchor_mask |= anchor[m]
+        label[anchor[m]] = m        # 确保anchor标记自己模块
+
+    # -------- energy ----------------------------------------- #
+    def energy():
+        u = sum(unary(i, label[i]) for i in range(n))
+        p = float((lam * (label[idx[:, 1:]] != label[:, None])).sum())
+        return u + p
+
+    prev_E = energy()
+    print(f"iter 0  energy={prev_E:.4f}")
+
+    # -------- optimisation loop ------------------------------ #
+    for t in range(1, max_iter + 1):
+        # 1) dynamic weight (Leiden purity)
+        g = nx.Graph()
+        g.add_nodes_from(range(n))
+        for i in range(n):
+            for j in idx[i, 1:]:
+                g.add_edge(i, j)
+        nx.set_node_attributes(g, {i: label[i] for i in range(n)}, "lab")
+        part = leidenalg.find_partition(
+            Graph.from_networkx(g),
+            leidenalg.RBConfigurationVertexPartition,
+            weights=None)
+
+        purity = {m: [] for m in modules_used}
+        for cl in part:
+            cnt = {}
+            for v in cl:
+                cnt[label[v]] = cnt.get(label[v], 0) + 1
+            cl_purity = max(cnt.values()) / len(cl)
+            for m, v in cnt.items():
+                if m in modules_used:
+                    purity[m].append(v / len(cl) * cl_purity)
+        for m in modules_used:
+            if purity[m]:
+                mean_p = float(np.mean(purity[m]))
+                w_mod[m] = np.clip(
+                    w_mod[m] * (1 + lr * (mean_p - target_purity)),
+                    w_floor, w_ceil)
+
+        # 2) ICM + annealed perturbation (skip anchor)
+        changed = 0
+        p_t = p0 * np.exp(-t / tau)
+        for i in range(n):
+            if anchor_mask[i]:
+                continue
+            cand = [m for m in modules_used if anno[m][i]] or modules_used
+            if modules_preferred:
+                pref = [m for m in cand if m in modules_preferred]
+                cand = pref or cand
+            if label[i] not in cand:
+                cand.append(label[i])
+
+            if random.random() < p_t:
+                new_lab = random.choice(cand)
+            else:
+                pair = lam[i] * (label[idx[i, 1:]] != np.array(cand)[:, None])
+                total = [unary(i, m) + pair[k].sum()
+                         for k, m in enumerate(cand)]
+                new_lab = cand[int(np.argmin(total))]
+
+            if new_lab != label[i]:
+                label[i] = new_lab
+                changed += 1
+
+        curr_E = energy()
+        print(f"iter {t:2d}  energy={curr_E:.4f}  ΔE={prev_E - curr_E:+.4f}  changed={changed}")
+        if abs(prev_E - curr_E) / max(abs(prev_E), 1) < energy_tol:
+            print("converged")
+            break
+        prev_E = curr_E
+
+    adata.obs[result_anno] = label
+
+# %%
+# 测试
+integrate_annotations_density(
+    adata,
+    ggm_key='ggm',
+    modules_excluded=['M15', 'M18','M37'],           # 明显噪声
+    modules_preferred=['M5', 'M28', 'M38'],
+    result_anno='annotation_new_3',
+    # # ---------- graph ----------
+    # k_neighbors=24,            # 与 Visium spot 密度匹配
+    # lambda_pair=0.35,          # ↑ 斑块更纯；↓ 更细碎
+    # # ---------- anchor ----------
+    # anchor_top_pct=5,          # 来自 PDF 截断分布
+    # anchor_vote_thr=0.6,       # 聚集中心锁定
+    # alpha=0.5,          # vote
+    # beta=0.3,           # expression rank
+    # gamma=0.1,          # density term
+    # delta=0.4,          # low‑weight penalty               
+    max_iter=50,
+    random_state=0)
+
+# %%
+sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "annotation_new_3", frameon = False, color="annotation_new_3",
+              palette=color_dict, show=True)
 
 
 
@@ -742,7 +999,8 @@ adata.uns['module_stats'][adata.uns['module_stats']['positive_moran_I']>=0.5]['m
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 
 # Define the columns of interest
-clust_columns = ['graph_cluster', 'kmeans_10_clusters', 'leiden_0.5_ggm', 'leiden_1_ggm', 'louvan_0.5_ggm', 'louvan_1_ggm', 'annotation', 'annotation_new_1', 'annotation_new_2']
+clust_columns = ['graph_cluster', 'kmeans_10_clusters', 'leiden_0.5_ggm', 'leiden_1_ggm', 'louvan_0.5_ggm', 'louvan_1_ggm', 
+                 'annotation', 'annotation_new_1', 'annotation_new_2', 'annotation_new_3']
 # Extract clustering labels from adata.obs
 df = adata.obs[clust_columns]
 # Initialize empty DataFrames for the ARI and NMI matrices
