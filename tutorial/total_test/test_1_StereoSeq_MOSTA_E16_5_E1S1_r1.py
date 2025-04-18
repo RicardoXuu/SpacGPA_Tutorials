@@ -213,6 +213,27 @@ sg.classify_modules(adata,
 adata.uns['module_filtering']['type_tag'].value_counts()
 
 
+# %%
+# 测试新版函数
+sg.integrate_annotations(
+    adata,
+    ggm_key='ggm',
+    #modules_excluded=['M15', 'M18'],        
+    #modules_preferred=['M28', 'M38'],
+    result_anno='annotation_new',
+    k_neighbors=24,
+    lambda_pair=0.3,
+    purity_adjustment=True,
+    w_floor=0.01,
+    lr=0.5,
+    target_purity=0.85,
+    # alpha=0.5,
+    # beta=0.3
+    gamma=0.3,
+    # delta=0.4,   
+    max_iter=100,
+    random_state=0)
+
 
 # %%
 # 合并注释（考虑空间坐标和模块表达值）

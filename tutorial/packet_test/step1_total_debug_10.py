@@ -478,6 +478,11 @@ for module in adata.uns['module_stats']['module_id']:
     sc.pl.spatial(adata, size=1.6, alpha_img=0.5, frameon = False, color_map="Reds",ncols=5, 
                   color=[f"{module}_exp",f"{module}_anno",f"{module}_anno_smooth",
                          f"{module}_anno_smooth_advanced",f"{module}_anno_smooth_optimized"],show=True)
+
+
+
+
+ 
     
 # %%
 pdf_file = "figures/visium/CytAssist_FreshFrozen_Mouse_Brain_Rep2_smooth_methods.pdf"

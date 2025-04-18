@@ -3,14 +3,18 @@ import scanpy as sc
 import pandas as pd
 import numpy as np
 import scipy.sparse as sp
+import networkx as nx
 from sklearn.preprocessing import StandardScaler
 from sklearn.mixture import GaussianMixture
-from sklearn.neighbors import NearestNeighbors
+from scipy.spatial.distance import pdist
+from scipy.stats import skew, rankdata
+from igraph import Graph
+from sklearn.neighbors import NearestNeighbors, KernelDensity
 import itertools
 import warnings
-from scipy.spatial.distance import pdist
-from scipy.stats import skew
-
+import leidenalg
+import sys
+import random
 
 # construct_spatial_weights 
 def construct_spatial_weights(coords, k_neighbors=6):
@@ -885,355 +889,277 @@ def annotate_with_ggm(
     print("\n============= Finished annotating and smoothing =============")
 
 
-# classify_modules
-def classify_modules(adata, 
-                     ggm_key='ggm',
-                     ref_anno=None,
-                     ref_cluster_method='leiden', 
-                     ref_cluster_resolution=1.0, 
-                     skew_threshold=2.0,
-                     top1pct_threshold=2.0,
-                     Moran_I_threshold=0.2,
-                     min_dominant_cluster_fraction=0.3,
-                     anno_overlap_threshold=0.6):
-    """
-    Classify spatial specificity modules based on module statistics and annotation data.
-    
-    This function uses module-level statistics (stored in adata.uns[mod_stats_key]),
-    module expression (adata.obsm['module_expression']), and annotation columns (e.g., "M01_anno")
-    to determine which modules serve as robust markers for cell identity.
-    
-    Parameters:
-      adata : AnnData object containing spatial transcriptomics data along with:
-              - Module statistics in adata.uns[mod_stats_key]
-              - Module expression matrix in adata.obsm['module_expression']
-              - Module annotation columns in adata.obs (e.g., "M01_anno")
-      ggm_key : str, key in adata.uns for the GGM object.
-      ref_anno : str, key in adata.obs for reference cluster labels; if provided, this column is used.
-      ref_cluster_method : str, clustering method to use if ref_anno is not provided (e.g., 'leiden' or 'louvain').
-      ref_cluster_resolution : float, resolution parameter for clustering.
-      skew_threshold : float, threshold for skewness to flag modules with ubiquitous expression.
-      top1pct_threshold : float, threshold for the top 1% expression ratio to flag modules with ubiquitous expression.
-      Moran_I_threshold : float, threshold for positive Moran's I to flag diffuse (weakly spatial) modules.
-      min_dominant_cluster_fraction : float, the minimum fraction of a module's annotated cells that must be concentrated 
-                                      in one reference cluster to avoid being flagged as mixed-regional.
-      anno_overlap_threshold : float, the Jaccard index threshold above which two modules are considered redundant.
-       
-    The function updates adata.uns['module_filtering'] with a DataFrame containing:
-      - module_id: Module identifier.
-      - is_identity: Boolean flag indicating whether the module is suitable as a cell identity marker.
-      - type_tag: Category tag, one of:
-          * "cellular_activity_module"
-          * "ubiquitous_module"
-          * "diffuse_module"
-          * "mixed_regional_module"
-          * "redundant_module"
-          * "cell_identity_module"
-      - information: A brief explanation for exclusion/inclusion.
-      
-    Also, adata.uns[mod_stats_key] is updated with 'is_identity' and 'type_tag' for each module.
-    
-    """
-    if ggm_key not in adata.uns['ggm_keys']:
-        raise ValueError(f"{ggm_key} not found in adata.uns['ggm_keys']")
-    mod_stats_key = adata.uns['ggm_keys'][ggm_key]['module_stats']
-    mod_filtering_key = adata.uns['ggm_keys'][ggm_key]['module_filtering']
-    exp_scaled_key = adata.uns['ggm_keys'][ggm_key]['module_expression_scaled']
-
-    # Retrieve module statistics
-    module_stats = adata.uns.get(mod_stats_key)
-    if module_stats is None:
-        raise ValueError("Module statistics not found in adata.uns[mod_stats_key]")
-    mod_stats_df = module_stats if isinstance(module_stats, pd.DataFrame) else pd.DataFrame(module_stats)
-    
-    # Check if GO annotation info exists (i.e. 'top_go_terms' column)
-    has_go_info = "top_go_terms" in mod_stats_df.columns
-
-    # Get list of module IDs
-    module_ids = mod_stats_df['module_id'].tolist()
-    
-    # (1) Obtain spatial clustering labels
-    if ref_anno is None:
-        if ref_cluster_method.lower() == 'leiden':
-            ref_anno = 'tmp_leiden_for_filtering'
-            sc.pp.neighbors(adata, use_rep=exp_scaled_key,
-                            n_pcs=adata.obsm[exp_scaled_key].shape[1])
-            sc.tl.leiden(adata, resolution=ref_cluster_resolution, key_added=ref_anno)
-        elif ref_cluster_method.lower() == 'louvain':
-            ref_anno = 'tmp_louvain_for_filtering'
-            sc.pp.neighbors(adata, use_rep=exp_scaled_key,
-                            n_pcs=adata.obsm[exp_scaled_key].shape[1])
-            sc.tl.louvain(adata, resolution=ref_cluster_resolution, key_added=ref_anno)
-        else:
-            print(f"Unknown clustering method '{ref_cluster_method}'; skipping cluster assignment")
-            ref_anno = None
-    else:
-        if ref_anno not in adata.obs.columns:
-            raise ValueError(f"Cluster label column '{ref_anno}' not found in adata.obs")
-        
-    # (2) For each module, get the set of annotated cell indices and counts
-    module_cells = {}
-    module_cell_counts = {}
-    for module_id in module_ids:
-        col = f"{module_id}_anno"
-        if col not in adata.obs.columns:
-            module_cells[module_id] = set()
-            module_cell_counts[module_id] = 0
-        else:
-            cells = adata.obs[~adata.obs[col].isna()].index
-            module_cells[module_id] = set(cells)
-            module_cell_counts[module_id] = len(cells)
-    # Sort modules by number of annotated cells (descending)
-    modules_sorted = sorted(module_ids, key=lambda m: module_cell_counts.get(m, 0), reverse=True)
-    
-    # Define GO keywords indicative of general cellular activity
-    activity_keywords = [kw.lower() for kw in [
-        "proliferation", "cell cycle", "cell division", "DNA replication", 
-        "RNA processing", "translation", "metabolic process", "biosynthetic process", 
-        "ribosome", "chromosome segregation", "spindle", "mitotic", "cell growth"
-    ]]
-    
-    # Initialize result dictionaries
-    results = []  # Each record: {module_id, is_identity, type_tag, reason, information}
-    is_identity_dict = {}
-    type_tag_dict = {}
-    reason_dict = {}
-    
-    # (3) First pass: apply filters sequentially
-    for mod in modules_sorted:
-        # Retrieve module stats: skew, top1pct_ratio, and positive Moran's I
-        if 'skew' in mod_stats_df.columns:
-            skewness = float(mod_stats_df.loc[mod_stats_df['module_id'] == mod, 'skew'].iloc[0])
-        else:
-            skewness = None
-        if 'top1pct_ratio' in mod_stats_df.columns:
-            top1pct = float(mod_stats_df.loc[mod_stats_df['module_id'] == mod, 'top1pct_ratio'].iloc[0])
-        else:
-            top1pct = None
-        if 'positive_moran_I' in mod_stats_df.columns:
-            moranI = float(mod_stats_df.loc[mod_stats_df['module_id'] == mod, 'positive_moran_I'].iloc[0])
-        else:
-            moranI = None
-        
-        # Default: module is considered a cell identity marker
-        is_identity = True
-        type_tag = 'cell_identity_module'
-        reason = "Passed all filters"
-        
-        # (a) Exclude modules with GO terms indicating general cellular activity.
-        is_activity = False
-        if has_go_info:
-            go_terms_str = mod_stats_df.loc[mod_stats_df['module_id'] == mod, 'top_go_terms']
-            if not go_terms_str.empty:
-                go_terms_str = go_terms_str.iloc[0]
-                if pd.notnull(go_terms_str):
-                    terms = [t.strip().lower() for t in go_terms_str.split("||")]
-                    for term in terms:
-                        if any(kw in term for kw in activity_keywords):
-                            go_terms_str = term
-                            is_activity = True
-                            break
-        if is_activity:
-            is_identity = False
-            type_tag = 'cellular_activity_module'
-            reason = f'Excluded: GO enrichment indicates cellular activity ({go_terms_str})'
-            is_identity_dict[mod] = is_identity
-            type_tag_dict[mod] = type_tag
-            reason_dict[mod] = reason
-            results.append({
-                'module_id': mod,
-                'is_identity': is_identity,
-                'type_tag': type_tag,
-                'information': reason
-            })
-            continue
-        
-        # (b) Exclude modules with ubiquitous expression (low skew and low top1pct_ratio)
-        if skewness is not None and top1pct is not None:
-            if skewness < skew_threshold and top1pct < top1pct_threshold:
-                is_identity = False
-                type_tag = 'ubiquitous_module'
-                reason = f'Excluded: Skew ({skewness:.2f}) and top1pct_ratio ({top1pct:.2f}) below thresholds'
-        if not is_identity:
-            is_identity_dict[mod] = is_identity
-            type_tag_dict[mod] = type_tag
-            reason_dict[mod] = reason
-            results.append({
-                'module_id': mod,
-                'is_identity': is_identity,
-                'type_tag': type_tag,
-                'information': reason
-            })
-            continue
-        
-        # (c) Exclude modules with diffuse spatial patterns (weak spatial autocorrelation)
-        if moranI is not None:
-            if moranI < Moran_I_threshold and moranI > 0:
-                is_identity = False
-                type_tag = 'diffuse_module'
-                reason = f'Excluded: Positive Moran’s I ({moranI:.2f}) below threshold'
-        if not is_identity:
-            is_identity_dict[mod] = is_identity
-            type_tag_dict[mod] = type_tag
-            reason_dict[mod] = reason
-            results.append({
-                'module_id': mod,
-                'is_identity': is_identity,
-                'type_tag': type_tag,
-                'information': reason
-            })
-            continue
-        
-        # (d) Exclude modules that are not concentrated in a single spatial domain.
-        if ref_anno is not None and module_cell_counts.get(mod, 0) > 0:
-            cells = module_cells.get(mod, set())
-            clusters = adata.obs.loc[list(cells), ref_anno] if ref_anno in adata.obs.columns else None
-            if clusters is not None:
-                cluster_counts = clusters.value_counts()
-                if len(cluster_counts) > 1:
-                    total = cluster_counts.sum()
-                    dominant_fraction = cluster_counts.max() / total
-                    if dominant_fraction < min_dominant_cluster_fraction:
-                        is_identity = False
-                        type_tag = 'mixed_regional_module'
-                        reason = f'Excluded: Dominant cluster fraction ({dominant_fraction:.2f}) below {min_dominant_cluster_fraction}'
-        if not is_identity:
-            is_identity_dict[mod] = is_identity
-            type_tag_dict[mod] = type_tag
-            reason_dict[mod] = reason
-            results.append({
-                'module_id': mod,
-                'is_identity': is_identity,
-                'type_tag': type_tag,
-                'information': reason
-            })
-            continue
-        
-        # If the module passes all filters, mark it as a cell identity module.
-        is_identity = True
-        type_tag = 'cell_identity_module'
-        reason = "Included: Passed all filters"
-        is_identity_dict[mod] = is_identity
-        type_tag_dict[mod] = type_tag
-        reason_dict[mod] = reason
-        results.append({
-            'module_id': mod,
-            'is_identity': is_identity,
-            'type_tag': type_tag,
-            'information': reason
-        })
-    
-    # (4) Second pass: Identify redundant modules by pairwise comparison.
-    # For modules with high annotation overlap (Jaccard index >= anno_overlap_threshold),
-    # the module with the lower effect_size is considered less discriminative and is marked as redundant.
-    identity_modules = [mod for mod in modules_sorted if is_identity_dict.get(mod, False)]
-    identity_modules = sorted(identity_modules)
-    marked_as_similar = set()
-    for i, modA in enumerate(identity_modules):
-        for modB in identity_modules[i+1:]:
-            if modA in marked_as_similar or modB in marked_as_similar:
-                continue
-            cellsA = module_cells.get(modA, set())
-            cellsB = module_cells.get(modB, set())
-            if not cellsA or not cellsB:
-                continue
-            inter = len(cellsA & cellsB)
-            union = len(cellsA | cellsB)
-            if union == 0:
-                continue
-            jaccard = inter / union
-            if jaccard >= anno_overlap_threshold:
-                # Use effect_size first to decide which module to keep.
-                keep_mod = modA
-                drop_mod = modB
-                effect_available = False
-                try:
-                    effA = float(mod_stats_df.loc[mod_stats_df['module_id'] == modA, 'effect_size'].iloc[0])
-                    effB = float(mod_stats_df.loc[mod_stats_df['module_id'] == modB, 'effect_size'].iloc[0])
-                    if not (np.isnan(effA) or np.isnan(effB)):
-                        effect_available = True
-                except Exception:
-                    effA = effB = None
-                if effect_available:
-                    # The module with the smaller effect_size (lower discriminative power) is dropped.
-                    if effA < effB:
-                        keep_mod, drop_mod = modB, modA
-                    else:
-                        keep_mod, drop_mod = modA, modB
-                    info_str = (f'Excluded: Jaccard index {jaccard:.2f} >= {anno_overlap_threshold} and ' 
-                                f'lower effect_size ({min(effA, effB):.2f})')
-                else:
-                    # Fallback: use sum of skew and top1pct_ratio as a score.
-                    scoreA = 0
-                    scoreB = 0
-                    if modA in type_tag_dict and modB in type_tag_dict:
-                        scoreA = (float(mod_stats_df.loc[mod_stats_df['module_id'] == modA, 'skew'].iloc[0]) 
-                                  if 'skew' in mod_stats_df.columns else 0) + \
-                                 (float(mod_stats_df.loc[mod_stats_df['module_id'] == modA, 'top1pct_ratio'].iloc[0]) 
-                                  if 'top1pct_ratio' in mod_stats_df.columns else 0)
-                        scoreB = (float(mod_stats_df.loc[mod_stats_df['module_id'] == modB, 'skew'].iloc[0]) 
-                                  if 'skew' in mod_stats_df.columns else 0) + \
-                                 (float(mod_stats_df.loc[mod_stats_df['module_id'] == modB, 'top1pct_ratio'].iloc[0]) 
-                                  if 'top1pct_ratio' in mod_stats_df.columns else 0)
-                    if scoreB > scoreA:
-                        keep_mod, drop_mod = modB, modA
-                    info_str = f'Excluded: Jaccard index {jaccard:.2f} >= {anno_overlap_threshold}; fallback score used'
-                is_identity_dict[drop_mod] = False
-                type_tag_dict[drop_mod] = 'redundant_module'
-                reason_dict[drop_mod] = f'Overlap with module {keep_mod}'
-                marked_as_similar.add(drop_mod)
-                for rec in results:
-                    if rec['module_id'] == drop_mod:
-                        rec['is_identity'] = False
-                        rec['type_tag'] = 'redundant_module'
-                        rec['information'] = info_str
-                        break
-                else:
-                    results.append({
-                        'module_id': drop_mod,
-                        'is_identity': False,
-                        'type_tag': 'redundant_module',
-                        'information': info_str
-                    })
-    # (5) Assemble final results DataFrame
-    result_df = pd.DataFrame(results)
-    if 'module_id' in result_df.columns:
-        result_df = result_df.sort_values(by='module_id').reset_index(drop=True)
-    adata.uns[mod_filtering_key] = result_df
-    
-    # Update adata.uns[mod_stats_key] with is_identity and type_tag
-    if 'module_id' in mod_stats_df.columns:
-        mod_stats_df['is_identity'] = mod_stats_df['module_id'].map(is_identity_dict).fillna(False)
-        mod_stats_df['type_tag'] = mod_stats_df['module_id'].map(type_tag_dict).fillna('filtered_module')
-        adata.uns[mod_stats_key] = mod_stats_df
-    else:
-        new_cols = []
-        for idx in mod_stats_df.index:
-            mod_id = str(idx)
-            if idx in is_identity_dict:
-                new_cols.append((is_identity_dict[idx], type_tag_dict.get(idx, 'filtered_module')))
-            elif mod_id in is_identity_dict:
-                new_cols.append((is_identity_dict[mod_id], type_tag_dict.get(mod_id, 'filtered_module')))
-            else:
-                new_cols.append((False, 'filtered_module'))
-        mod_stats_df['is_identity'] = [col[0] for col in new_cols]
-        mod_stats_df['type_tag'] = [col[1] for col in new_cols]
-        adata.uns[mod_stats_key] = mod_stats_df
-
-
 # integrate_annotations
-def integrate_annotations(adata,
-                          ggm_key='ggm',
-                          cross_ggm = False,
-                          modules_used=None,
-                          modules_excluded=None,
-                          modules_preferred=None,
-                          result_anno='annotation',
-                          use_smooth=True,
-                          embedding_key='spatial',
-                          k_neighbors=24,
-                          neighbor_similarity_ratio=0.90
-                          ):            
+def integrate_annotations(
+    adata,
+    ggm_key="ggm",
+    modules_used=None,
+    modules_excluded=None,
+    modules_preferred=None,
+    result_anno="anno_density",
+    embedding_key="spatial",
+    k_neighbors=24,
+    purity_adjustment=True,
+    alpha=0.4,
+    beta=0.3,
+    gamma=0.3,
+    delta=0.4,
+    lambda_pair=0.3,
+    lr=0.1,
+    target_purity=0.8,
+    w_floor=0.1,
+    w_ceil=1.0,
+    max_iter=100,
+    energy_tol=1e-3,
+    p0=0.1,
+    tau=8.0,
+    random_state=None,
+):
+    """
+    Integrate module-wise annotations into a single, spatially smooth label
+    using a first-order Potts Conditional Random Field (CRF).
+
+    Parameters
+    ----------
+    adata : AnnData
+        Must contain:
+          • adata.obsm[embedding_key]: spatial coordinates
+          • per-module columns 'Mx_anno' or 'Mx_anno_smooth', and 'Mx_exp'
+    ggm_key : str
+        Key in adata.uns['ggm_keys'] pointing to module stats.
+    modules_used : list[str] or None
+        Modules to include; None means use all.
+    modules_excluded : list[str] or None
+        Modules to remove from the set.
+    modules_preferred : list[str] or None
+        Preferred modules when multiple candidates exist for a cell.
+    result_anno : str
+        Name of the output column in adata.obs.
+    embedding_key : str
+        Key for spatial coordinates in adata.obsm.
+    k_neighbors : int
+        Number of nearest neighbours (including the cell).
+    purity_adjustment : bool
+        Whether to perform Leiden clustering each iteration to adjust module weights.
+    alpha, beta, gamma, delta : float
+        Weights of the unary terms:
+          alpha - neighbor-vote weight (how much neighboring labels influence cost)
+          beta  - expression-rank weight (how much gene expression rank influences cost)
+          gamma - density weight (how much spatial cluster density influences cost)
+          delta - low-purity penalty weight (penalizes modules with low global purity, only if purity_adjustment is True)
+    lambda_pair : float
+        Strength of the Potts pairwise smoothing term (penalizes label differences).
+    lr : float
+        Learning rate for dynamic module weights.
+    target_purity : float
+        Target purity for weight updates.
+    w_floor, w_ceil : float
+        Bounds for dynamic module weights.
+    max_iter : int
+        Maximum number of iterations.
+    energy_tol : float
+        Convergence threshold on relative energy change.
+    p0 : float
+        Initial perturbation probability (simulated annealing).
+    tau : float
+        Decay constant for the perturbation probability.
+    random_state : int or None
+        Seed for random number generator.
+
+    Returns
+    -------
+    AnnData
+        The same AnnData with adata.obs[result_anno] containing final labels.
+    """
+    # reproducibility
+    random.seed(random_state)
+    np.random.seed(random_state)
+    rng = random.Random(random_state)
+
+    # sanity checks
+    if embedding_key not in adata.obsm:
+        raise KeyError(f"{embedding_key} not found in adata.obsm")
+    if ggm_key not in adata.uns["ggm_keys"]:
+        raise KeyError(f"{ggm_key} not found in adata.uns['ggm_keys']")
+    
+    # print parameter meanings and values
+    print(
+        f"Main parameters for integration:\n"
+        f"  alpha = {alpha:.2f}  for neighbor-vote weight\n"
+        f"  beta  = {beta:.2f}  for expression-rank weight\n"
+        f"  gamma = {gamma:.2f}  for spatial-density weight\n"
+        f"  delta = {delta:.2f}  for low-purity penalty weight\n"
+        f"  lambda_pair = {lambda_pair:.2f}  for potts smoothing strength\n"
+    )
+
+    # load module list
+    stats_key = adata.uns["ggm_keys"][ggm_key]["module_stats"]
+    modules_df = adata.uns[stats_key]
+    all_modules = list(pd.unique(modules_df["module_id"]))
+    modules_used = modules_used or all_modules
+    if modules_excluded:
+        modules_used = [m for m in modules_used if m not in modules_excluded]
+
+    # build spatial KNN graph
+    X = adata.obsm[embedding_key]
+    n_cells = adata.n_obs
+    knn = NearestNeighbors(n_neighbors=k_neighbors + 1).fit(X)
+    dist, idx = knn.kneighbors(X)
+    sigma = max(np.mean(dist[:, 1:]), 1e-6)
+    W = np.exp(-dist**2 / sigma**2)
+    lam = lambda_pair * W[:, 1:]
+
+    # load annotations, compute ranks and density
+    anno = {}
+    rank_norm = {}
+    dens_log = {}
+    for m in modules_used:
+        col = f"{m}_anno_smooth" if f"{m}_anno_smooth" in adata.obs else f"{m}_anno"
+        if col not in adata.obs or f"{m}_exp" not in adata.obs:
+            raise KeyError(f"Missing columns for module {m}")
+        lab = (adata.obs[col] == m).astype(int).values
+        anno[m] = lab
+
+        r = rankdata(-adata.obs[f"{m}_exp"].values, method="dense")
+        rank_norm[m] = (r - 1) / (n_cells - 1)
+
+        pts = X[lab == 1]
+        if len(pts) >= 3:
+            dens_log[m] = -KernelDensity().fit(pts).score_samples(X)
+        else:
+            dens_log[m] = np.zeros(n_cells)
+
+    # define unary energy
+    w_mod = {m: 1.0 for m in modules_used}
+    def unary(i, m):
+        nb = idx[i, 1:]
+        s = W[i, 1:].sum()
+        vote = (W[i, 1:] * anno[m][nb]).sum() / s if s else 0.0
+        vote *= w_mod[m]
+        return (
+            alpha * (1 - vote)
+            + beta * rank_norm[m][i]
+            + gamma * dens_log[m][i]
+            + delta * (1 - w_mod[m])
+        )
+
+    # initial labeling
+    label = np.empty(n_cells, dtype=object)
+    for i in range(n_cells):
+        cand = [m for m in modules_used if anno[m][i]] or modules_used
+        if modules_preferred:
+            pref = [m for m in cand if m in modules_preferred]
+            cand = pref or cand
+        label[i] = min(cand, key=lambda m: unary(i, m))
+
+    # energy function
+    def energy():
+        u = sum(unary(i, label[i]) for i in range(n_cells))
+        p = float((lam * (label[idx[:, 1:]] != label[:, None])).sum())
+        return u + p
+
+    prev_E = energy()
+    print("Starting optimization...")
+    print(f"Iteration:   0, Energy: {prev_E:.2f}")
+
+    # optimization loop
+    converged = False
+    last_pr_len = 0
+    for t in range(1, max_iter + 1):
+        # optionally update module weights based on Leiden purity
+        if purity_adjustment:
+            g = nx.Graph()
+            g.add_nodes_from(range(n_cells))
+            for i in range(n_cells):
+                for j in idx[i, 1:]:
+                    g.add_edge(i, j)
+            nx.set_node_attributes(g, {i: label[i] for i in range(n_cells)}, "label")
+            part = leidenalg.find_partition(
+                Graph.from_networkx(g),
+                leidenalg.RBConfigurationVertexPartition,
+                seed=random_state
+            )
+
+            purity = {m: [] for m in modules_used}
+            for cluster in part:
+                counts = {}
+                for v in cluster:
+                    counts[label[v]] = counts.get(label[v], 0) + 1
+                cp = max(counts.values()) / len(cluster)
+                for m, v in counts.items():
+                    if m in modules_used:
+                        purity[m].append(v / len(cluster) * cp)
+            for m in modules_used:
+                if purity[m]:
+                    mp = float(np.mean(purity[m]))
+                    w_mod[m] = np.clip(w_mod[m] * (1 + lr * (mp - target_purity)),
+                                       w_floor, w_ceil)
+
+        # ICM with annealed perturbation
+        changed = 0
+        p_t = p0 * np.exp(-t / tau)
+        for i in range(n_cells):
+            cand = [m for m in modules_used if anno[m][i]] or modules_used
+            if modules_preferred:
+                pref = [m for m in cand if m in modules_preferred]
+                cand = pref or cand
+            if label[i] not in cand:
+                cand.append(label[i])
+
+            if random.random() < p_t:
+                new_lab = rng.choice(cand)
+            else:
+                pair_cost = lam[i] * (label[idx[i, 1:]] != np.array(cand)[:, None])
+                total = [unary(i, m) + pair_cost[k].sum() for k, m in enumerate(cand)]
+                new_lab = cand[int(np.argmin(total))]
+
+            if new_lab != label[i]:
+                label[i] = new_lab
+                changed += 1
+
+        curr_E = energy()
+        msg = f"Iteration: {t:3}, Energy: {curr_E:.2f}, ΔE: {prev_E-curr_E:+.2f}, Changed: {changed}"
+        sys.stdout.write("\r" + " " * last_pr_len + "\r")
+        sys.stdout.write(msg)
+        sys.stdout.flush()
+        last_pr_len = len(msg)
+        if abs(prev_E - curr_E) / max(abs(prev_E), 1.0) < energy_tol:
+            print("\nConverged\n")
+            converged = True
+            break
+        prev_E = curr_E
+
+    if not converged:
+        print("\nStopped after max_iter without convergence\n")
+
+    adata.obs[result_anno] = label
+
+
+
+
+
+
+
+
+
+
+
+
+
+############################################################################################################
+# Old functions
+def integrate_annotations_noweight(adata,
+                                    ggm_key='ggm',
+                                    cross_ggm = False,
+                                    modules_used=None,
+                                    modules_excluded=None,
+                                    modules_preferred=None,
+                                    result_anno='annotation',
+                                    use_smooth=True,
+                                    embedding_key='spatial',
+                                    k_neighbors=24,
+                                    neighbor_similarity_ratio=0.90
+                                    ):            
     """
     Integrate cell annotations from multiple modules using the following logic:
       1) Optionally use smoothed annotations (controlled by use_smooth);
@@ -1411,115 +1337,6 @@ def integrate_annotations(adata,
     print(f"\nIntegrated annotation stored in adata.obs['{result_anno}'].\n")
 
 
-# calculate_module_overlap
-def calculate_module_overlap(adata, ggm_key='ggm', cross_ggm=False,
-                             modules_used=None, 
-                             modules_excluded=None,
-                             use_smooth=True):
-    """
-    Compute the overlap ratios between modules based on annotation columns in adata.obs.
-    
-    The returned DataFrame has the following seven columns:
-      - module_a: ID of module A
-      - module_b: ID of module B
-      - overlap_ratio_a: Overlap count divided by the cell count of module A
-      - overlap_ratio_b: Overlap count divided by the cell count of module B
-      - overlap_ratio_union: Overlap count divided by the cell count of the union of module A and module B
-      - count_a: Number of cells annotated by module A
-      - count_b: Number of cells annotated by module B
-    
-    Pairs with zero overlap are omitted. The final DataFrame is sorted by module_a (ascending)
-    and then by overlap_ratio_a (descending).
-
-    Parameters:
-      adata (AnnData): AnnData object. The annotation columns should exist in adata.obs with names 
-                       "{module_id}_anno" or "{module_id}_anno_smooth".
-      ggm_key (str): Key for the GGM object in adata.uns
-      cross_ggm (bool): Whether to calculate overlaps across multiple GGMs (default False).
-      modules_used (list): List of module IDs to compute overlaps.
-      modules_excluded (list): List of module IDs to exclude from overlap calculation.
-      use_smooth (bool): Whether to use smoothed annotation columns (default True).
-
-    Returns:
-      pd.DataFrame: DataFrame containing the overlap statistics.
-    """
-    if ggm_key not in adata.uns['ggm_keys']:
-        raise ValueError(f"{ggm_key} not found in adata.uns['ggm_keys']")
-    mod_stats_key = adata.uns['ggm_keys'][ggm_key]['module_stats']
-
-    if cross_ggm and len(adata.uns['ggm_keys']) > 2:
-        if modules_used is None:
-            raise ValueError("When cross_ggm is True, modules_used must be provided manually.")
-
-    # If modules_used is not provided, get modules from uns['module_stats']
-    if modules_used is None:
-        modules_used = adata.uns[mod_stats_key]['module_id'].unique()
-    # Exclude modules if the modules_excluded list is provided    
-    if modules_excluded is not None:
-        modules_used = [mid for mid in modules_used if mid not in modules_excluded]
-
-    # Determine which annotation column to use for each module.
-    if use_smooth:
-        missing_smooth = [mid for mid in modules_used if f"{mid}_anno_smooth" not in adata.obs]
-        if missing_smooth:
-            print(f"\nThese modules do not have 'smoothed anno': {missing_smooth}. Using 'anno' instead.")
-        existing_columns = []
-        for mid in modules_used:
-            if f"{mid}_anno_smooth" in adata.obs:
-                existing_columns.append(f"{mid}_anno_smooth")
-            elif f"{mid}_anno" in adata.obs:
-                existing_columns.append(f"{mid}_anno")
-    else:
-        existing_columns = [f"{mid}_anno" for mid in modules_used if f"{mid}_anno" in adata.obs]
-    
-    if len(existing_columns) != len(modules_used):
-        raise ValueError("The annotation columns for the specified modules do not fully match those in adata.obs. Please check your input.")
-    
-    # Build a dictionary mapping module IDs to their annotation (0/1) arrays.
-    anno_dict = {}
-    for mid in modules_used:
-        if f"{mid}_anno" in existing_columns:
-            anno_col = f"{mid}_anno"
-        else:
-            anno_col = f"{mid}_anno_smooth"    
-        anno_dict[mid] = (adata.obs[anno_col] == mid).astype(int).values
-    
-    overlap_records = []
-    # Iterate over all pairs of modules.
-    for mod_a, mod_b in itertools.combinations(modules_used, 2):
-        a = anno_dict[mod_a]
-        b = anno_dict[mod_b]
-        count_a = np.sum(a)
-        count_b = np.sum(b)
-        overlap = np.sum((a == 1) & (b == 1))
-        if overlap == 0:
-            continue
-        
-        ratio_a = overlap / count_a if count_a > 0 else np.nan
-        ratio_b = overlap / count_b if count_b > 0 else np.nan
-        union_count = count_a + count_b - overlap
-        ratio_union = overlap / union_count if union_count > 0 else np.nan
-        
-        overlap_records.append({
-            "module_a": mod_a,
-            "module_b": mod_b,
-            "overlap_ratio_a": ratio_a,
-            "overlap_ratio_b": ratio_b,
-            "overlap_ratio_union": ratio_union,
-            "count_a": count_a,
-            "count_b": count_b
-        })
-    
-    df = pd.DataFrame(overlap_records)
-    df.sort_values(by=["module_a", "overlap_ratio_a"], ascending=[True, False], inplace=True)
-    df.index = range(df.shape[0])
-    return df
-
-
-
-
-############################################################################################################
-# Old functions
 # integrate_annotations_old
 def integrate_annotations_old(adata, ggm_key='ggm',cross_ggm = False,
                               modules_used=None, modules_excluded=None,
