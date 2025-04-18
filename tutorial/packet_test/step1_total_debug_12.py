@@ -113,7 +113,7 @@ cmap1 = list(plt.get_cmap('tab20').colors)
 cmap2 = list(plt.get_cmap('tab20b').colors)  
 
 # Combine and select the first 39 colors
-combined_palette = cmap1 + cmap2
+combined_palette = cmap2 + cmap1
 palette = combined_palette[:39]
 
 # Convert RGBA tuples to hex strings (ignoring alpha)
@@ -736,6 +736,7 @@ integrate_annotations_improved_2(adata,
 sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "annotation_new_2", frameon = False, color="annotation_new_2",  
               palette=color_dict, show=True)
 
+
 # %%
 sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "annotation_new_2", frameon = False, color="annotation_new_2",  
               palette=color_dict, show=True,
@@ -970,18 +971,20 @@ def integrate_annotations_density(
 integrate_annotations_density(
     adata,
     ggm_key='ggm',
-    modules_excluded=['M15', 'M18','M37'],           # 明显噪声
-    modules_preferred=['M5', 'M28', 'M38'],
+    modules_used=['M4','M5','M6','M7','M11','M12','M13','M16','M17','M19',
+                  'M21','M22','M24','M26','M27','M28','M35','M38','M39'],
+    #modules_excluded=['M15', 'M18'],           # 明显噪声
+    #modules_preferred=['M5', 'M28', 'M38'],
     result_anno='annotation_new_3',
     # # ---------- graph ----------
-    # k_neighbors=24,            # 与 Visium spot 密度匹配
-    # lambda_pair=0.35,          # ↑ 斑块更纯；↓ 更细碎
+    k_neighbors=18,            # 与 Visium spot 密度匹配
+    lambda_pair=0.3,          # ↑ 斑块更纯；↓ 更细碎
     # # ---------- anchor ----------
-    # anchor_top_pct=5,          # 来自 PDF 截断分布
-    # anchor_vote_thr=0.6,       # 聚集中心锁定
+    anchor_top_pct=0,          # 来自 PDF 截断分布
+    #anchor_vote_thr=0.9,       # 聚集中心锁定
     # alpha=0.5,          # vote
     # beta=0.3,           # expression rank
-    # gamma=0.1,          # density term
+    gamma=0.3,          # density term
     # delta=0.4,          # low‑weight penalty               
     max_iter=50,
     random_state=0)
