@@ -82,7 +82,9 @@ print(ggm.modules_summary.shape)
 
 # %%
 sg.annotate_with_ggm(adata, ggm,
-                     ggm_key='ggm')
+                     ggm_key='ggm',
+                     k_neighbors_for_smooth=18,
+                     min_add_neighbors='none')
 
 # %%
 #使用leiden聚类和louvain聚类基于模块表达矩阵归一化矩阵进行聚类
@@ -128,8 +130,8 @@ sg.integrate_annotations_noweight(adata,
                         ggm_key='ggm',
                         result_anno='annotation',
                         use_smooth=True,
-                        modules_used=['M4','M5','M6','M7','M11','M12','M13','M17','M19',
-                                      'M21','M22','M24','M26','M27','M28','M35','M38','M39'],
+                        modules_used=['M4','M5','M6','M7','M10','M11','M12','M13','M17','M19',
+                                      'M21','M22','M24','M26','M28','M35','M38','M39'],
                         #modules_excluded=['M15','M18'],
                         #modules_preferred=['M5','M28','M38','M39'],
                         embedding_key='spatial',
@@ -152,22 +154,22 @@ sc.pl.spatial(adata, alpha_img = 0.5, size = 1.6, title= "annotation", frameon =
 sg.integrate_annotations(
     adata,
     ggm_key='ggm',
-    modules_used=['M4','M5','M6','M7','M11','M12','M13','M17','M19',
-                  'M21','M22','M24','M26','M27','M28','M35','M38','M39'],
+    modules_used=['M4','M5','M6','M7','M10','M11','M12','M13','M17','M19',
+                  'M21','M22','M24','M26','M28','M35','M38'],
     #modules_excluded=['M15', 'M18'],        
     #modules_preferred=['M28', 'M38'],
     result_anno='annotation_new',
     k_neighbors=18,
-    lambda_pair=0.3,
-    purity_adjustment=True,
-    w_floor=0.01,
-    lr=0.5,
-    target_purity=0.85,
-    # alpha=0.5,
-    # beta=0.3
-    gamma=0.3,
-    # delta=0.4,   
-    max_iter=100,
+    # lambda_pair=0.3,
+    # purity_adjustment=True,
+    # w_floor=0.01,
+    # lr=0.5,
+    # target_purity=0.85,
+    # # alpha=0.5,
+    # # beta=0.3
+    # gamma=0.3,
+    # # delta=0.4,   
+    # max_iter=100,
     random_state=0)
 
 # %%
@@ -1335,7 +1337,7 @@ from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 
 # Define the columns of interest
 clust_columns = ['graph_cluster', 'kmeans_10_clusters', 'leiden_0.5_ggm', 'leiden_1_ggm', 'louvan_0.5_ggm', 'louvan_1_ggm', 
-                 'annotation', 'annotation_new_1', 'annotation_new_2', 'annotation_new_3']
+                 'annotation', 'annotation_new']
 # Extract clustering labels from adata.obs
 df = adata.obs[clust_columns]
 # Initialize empty DataFrames for the ARI and NMI matrices

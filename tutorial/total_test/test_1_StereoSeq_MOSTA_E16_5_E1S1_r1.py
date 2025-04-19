@@ -190,7 +190,10 @@ sg.smooth_annotations(adata,
                       ggm_key='ggm',
                       embedding_key='spatial',
                       k_neighbors=24,
-                      min_annotated_neighbors=2
+                      min_drop_neighbors=1,
+                      min_add_neighbors='half',
+                      max_weight_ratio=1.5,
+                      border_iqr_factor=1.5,
                       )
 print(f"Time: {time.time() - start_time:.5f} s")    
 
@@ -221,6 +224,7 @@ module_used
 
 # %%
 # 测试新版函数
+start_time = time.time()
 sg.integrate_annotations(
     adata,
     ggm_key='ggm',
@@ -240,6 +244,46 @@ sg.integrate_annotations(
     # delta=0.4,   
     max_iter=100,
     random_state=0)
+print(f"Time: {time.time() - start_time:.5f} s")
+
+
+# %%
+sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation_new", show=True,
+              save="/MOSTA_E16_5_E1S1_ggm_modules_annotation_new.pdf")
+
+
+
+# %%
+# 测试新版函数
+start_time = time.time()
+sg.integrate_annotations(
+    adata,
+    ggm_key='ggm',
+    #modules_used=module_used,
+    #modules_excluded=['M15', 'M18'],        
+    #modules_preferred=['M28', 'M38'],
+    result_anno='annotation_new',
+    k_neighbors=24,
+    lambda_pair=0.3,
+    purity_adjustment=False,
+    w_floor=0.01,
+    lr=0.5,
+    target_purity=0.85,
+    # alpha=0.5,
+    # beta=0.3
+    gamma=0.3,
+    # delta=0.4,   
+    max_iter=100,
+    random_state=0)
+print(f"Time: {time.time() - start_time:.5f} s")
+
+
+# %%
+sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation_new_all", show=True,
+              save="/MOSTA_E16_5_E1S1_ggm_modules_annotation_new.pdf")
+
+
+
 
 
 # %%

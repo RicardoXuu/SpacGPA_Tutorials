@@ -16,6 +16,8 @@ import leidenalg
 import sys
 import random
 
+
+#################### support functions ####################
 # construct_spatial_weights 
 def construct_spatial_weights(coords, k_neighbors=6):
     """
@@ -72,7 +74,31 @@ def compute_moran(x, W):
     numerator = z.T.dot(W.dot(z))
     return (N / S0) * (numerator / denominator)
 
+# calc_border_flags
+def calc_border_flags(coords, k, iqr_factor=1.5):
+    """
+    Identify border cells based on neighbor distances.
 
+    Parameters:
+        coords (ndarray): Spatial coordinates, shape (N, D).
+        k (int): Number of neighbors to consider.
+        iqr_factor (float): Multiplier for IQR when setting distance threshold.
+
+    Returns:
+        border_mask (ndarray of bool): True for border cells.
+        knn_dists (ndarray): Distances to k nearest neighbors for each cell.
+    """
+    nbrs = NearestNeighbors(n_neighbors=k+1, metric='euclidean').fit(coords)
+    dists, _ = nbrs.kneighbors(coords)
+    mean_d = dists[:, 1:].mean(axis=1)
+    q1, q3 = np.percentile(mean_d, [25, 75])
+    threshold = q3 + iqr_factor * (q3 - q1)
+    border_mask = mean_d > threshold
+    return border_mask, dists[:, 1:]
+
+
+
+#################### main function ####################
 # calculate_module_expression 
 def calculate_module_expression(adata, 
                                 ggm_obj, 
@@ -486,14 +512,12 @@ def calculate_gmm_annotations(adata,
             
             # Calculate additional statistics
             if calculate_moran:
-                # (A) Module-level Moran's I: computed on the entire module expression vector
                 mod_I = compute_moran(expr_values, W)
                 stats['module_moran_I'] = mod_I
                 
-                # (B) Positive annotation: Construct masked expression vector (0 where 0, expr where 1)
                 pos_expr_masked = np.where(module_annotation == 1, expr_values, 0)
                 stats['positive_moran_I'] = compute_moran(pos_expr_masked, W)
-                # Calculate mean distance among positive cells
+                
                 full_indices = np.where(non_zero_mask)[0]
                 pos_idx = full_indices[anno_non_zero == 1]
                 if len(pos_idx) > 1:
@@ -502,7 +526,6 @@ def calculate_gmm_annotations(adata,
                 else:
                     stats['positive_mean_distance'] = np.nan
                 
-                # (C) Negative annotation: Construct masked expression vector (0 where 0, expr where 0)
                 neg_expr_masked = np.where(module_annotation == 0, expr_values, 0)
                 stats['negative_moran_I'] = compute_moran(neg_expr_masked, W)
             else:
@@ -511,10 +534,8 @@ def calculate_gmm_annotations(adata,
                 stats['negative_moran_I'] = np.nan
                 stats['positive_mean_distance'] = np.nan
             
-            # (D) Skewness for non-zero expression
             stats['skew'] = float(skew(non_zero_expr))
             
-            # (E) Top 1% ratio: mean of top 1% high-expressing cells / overall mean
             if len(expr_values) > 0:
                 top_n = max(1, int(len(expr_values) * 0.01))
                 sorted_expr = np.sort(expr_values)
@@ -523,7 +544,7 @@ def calculate_gmm_annotations(adata,
                 stats['top1pct_ratio'] = top1_mean / overall_mean if overall_mean != 0 else np.nan
             else:
                 stats['top1pct_ratio'] = np.nan
-            # (F) Effect size: mean of positive cells - mean of negative cells
+            
             if len(positive_expr) > 0:
                 std_all = np.std(non_zero_expr)
                 neg_expr = non_zero_expr[anno_non_zero == 0]
@@ -578,15 +599,12 @@ def calculate_gmm_annotations(adata,
                             ],
                             'main_component': main_component
                         })
-                        # Update annotation after fallback
                         fallback_annotation = np.zeros_like(expr_values, dtype=int)
                         fallback_annotation[non_zero_mask] = anno_non_zero
                         annotations.loc[non_zero_mask, module_id] = anno_non_zero
                         if calculate_moran:
-                            # Module-level Moran's I
                             fallback_mod_I = compute_moran(expr_values, W)
                             stats['module_moran_I'] = fallback_mod_I
-                            # Positive group (using masked expression)
                             pos_expr_masked = np.where(fallback_annotation == 1, expr_values, 0)
                             stats['positive_moran_I'] = compute_moran(pos_expr_masked, W)
                             full_indices = np.where(non_zero_mask)[0]
@@ -596,7 +614,6 @@ def calculate_gmm_annotations(adata,
                                 stats['positive_mean_distance'] = float(np.mean(pdist(pos_coords)))
                             else:
                                 stats['positive_mean_distance'] = np.nan
-                            # Negative group
                             neg_expr_masked = np.where(fallback_annotation == 0, expr_values, 0)
                             stats['negative_moran_I'] = compute_moran(neg_expr_masked, W)
                         else:
@@ -604,7 +621,6 @@ def calculate_gmm_annotations(adata,
                             stats['positive_moran_I'] = np.nan
                             stats['negative_moran_I'] = np.nan
                             stats['positive_mean_distance'] = np.nan
-                        # Skewness and top1pct_ratio
                         stats['skew'] = float(skew(non_zero_expr))
                         if len(non_zero_expr) > 0:
                             top_n = max(1, int(len(non_zero_expr) * 0.01))
@@ -614,7 +630,6 @@ def calculate_gmm_annotations(adata,
                             stats['top1pct_ratio'] = top1_mean / overall_mean if overall_mean != 0 else np.nan
                         else:
                             stats['top1pct_ratio'] = np.nan
-                        # Effect size
                         if len(positive_expr) > 0:
                             std_all = np.std(non_zero_expr)
                             neg_expr = non_zero_expr[anno_non_zero == 0]
@@ -645,7 +660,8 @@ def calculate_gmm_annotations(adata,
         anno_col = f"{mod}_anno"
         trim_col = f"{mod}_exp_trim"
         if exp_col in adata.obs.columns and anno_col in adata.obs.columns:
-            adata.obs[trim_col] = adata.obs.apply(lambda row: row[exp_col] if row[anno_col] == mod else 0, axis=1)
+            mask = (adata.obs[anno_col] == mod).astype(int)
+            adata.obs[trim_col] = adata.obs[exp_col] * mask
 
     # Add GO annotations to module_stats_key 
     stats_records_df = pd.DataFrame(stats_records)
@@ -664,7 +680,6 @@ def calculate_gmm_annotations(adata,
             else:
                 return ""
         stats_records_df["top_go_terms"] = stats_records_df["module_id"].apply(concat_go_terms)
-        # Set the order of columns in stats_records_df
         new_order = [
             'module_id', 'status', 'anno_one', 'anno_zero', 'top_go_terms', 'skew', 'top1pct_ratio', 
             'module_moran_I', 'positive_moran_I', 'negative_moran_I', 'positive_mean_distance','effect_size',
@@ -692,95 +707,137 @@ def calculate_gmm_annotations(adata,
         adata.uns[mod_stats_key] = existing_stats
     else:
         adata.uns[mod_stats_key] = stats_records_df
-    
-    return
+        
 
 # smooth_annotations
-def smooth_annotations(adata,
-                       ggm_key='ggm', 
-                       modules_used=None,
-                       modules_excluded=None, 
-                       embedding_key='spatial', k_neighbors=24, min_annotated_neighbors=1):
+def smooth_annotations(
+    adata,
+    ggm_key='ggm',
+    modules_used=None,
+    modules_excluded=None,
+    embedding_key='spatial',
+    k_neighbors=24,
+    min_drop_neighbors=1,
+    min_add_neighbors='half',
+    max_weight_ratio=1.5,
+    border_iqr_factor=1.5,
+    border_protect_fraction=0.3,
+    verbose=True
+):
     """
-    Smooth spatial annotations by processing each module's annotation.
-    
-    Parameters:
-      adata (anndata.AnnData): AnnData object containing spatial transcriptomics data.
-      ggm_key (str): Key for the GGM object in adata.uns['ggm_keys'].
-      modules_used (list): List of modules to smooth; if None, all modules are used.(default None)
-      modules_excluded (list): List of modules to exclude from smoothing (default None).
-      embedding_key (str): Key in adata.obsm for spatial coordinates (default 'spatial').
-      k_neighbors (int): Number of KNN neighbors (default 24); may need adjustment based on technology and cell density.
-      min_annotated_neighbors (int): Minimum number of neighbors with annotation 1 required to retain the annotation (default 1).
-    """
-    if ggm_key not in adata.uns['ggm_keys']:
-        raise ValueError(f"{ggm_key} not found in adata.uns['ggm_keys']")
-    
-    module_stats_key = adata.uns['ggm_keys'][ggm_key]['module_stats']
+    Smooths module annotations by dropping isolated positives and adding supported negatives.
 
-    # Check input: ensure the embedding key exists in adata.obsm
-    if embedding_key not in adata.obsm:
-        raise ValueError(f"{embedding_key} not found in adata.obsm. Please ensure the coordinate exists.")
+    Parameters:
+        adata (AnnData): Must contain '<module>_anno' and '<module>_exp' in .obs.
+        ggm_key (str): Key under adata.uns['ggm_keys'] containing module_stats.
+        modules_used (list or None): Modules to process; None for all.
+        modules_excluded (list or None): Modules to skip.
+        embedding_key (str): Key in adata.obsm for coordinates.
+        k_neighbors (int): Number of neighbors (excluding self).
+        min_drop_neighbors (int): Minimum positive neighbors to retain a positive cell.
+        min_add_neighbors ('half'|'none'|int): Neighbors needed to add negatives.
+        max_weight_ratio (float): Cap for exp/threshold ratio.
+        border_iqr_factor (float): IQR factor for border detection.
+        border_protect_fraction (float): If fraction of positives on border exceeds this,
+            border positives are protected from dropping.
+        verbose (bool): Print before/after counts per module.
+    """
+    # Load module stats
+    if ggm_key not in adata.uns.get('ggm_keys', {}):
+        raise KeyError(f"{ggm_key} not found in adata.uns['ggm_keys']")
+    stats_key = adata.uns['ggm_keys'][ggm_key]['module_stats']
+    stats_df = adata.uns[stats_key]
+
+    # Build KNN and detect border cells
+    coords = adata.obsm.get(embedding_key)
+    if coords is None:
+        raise KeyError(f"{embedding_key} not found in adata.obsm")
+    nbrs = NearestNeighbors(n_neighbors=k_neighbors+1, metric='euclidean').fit(coords)
+    knn_dists_all, knn_idx_all = nbrs.kneighbors(coords)
+    knn_idx = knn_idx_all[:, 1:]
+    knn_dists = knn_dists_all[:, 1:]
+    border_mask, _ = calc_border_flags(coords, k_neighbors, border_iqr_factor)
+
+    # Determine modules to process
+    all_mods = stats_df['module_id'].values
+    mods = list(all_mods) if modules_used is None else [m for m in modules_used if m in all_mods]
+    if modules_excluded:
+        mods = [m for m in mods if m not in modules_excluded]
     
-    # If modules_used is not provided, get all modules from adata.uns['module_stats']
-    if modules_used is None:
-        modules_used = adata.uns[module_stats_key]['module_id'].unique()
-    # Exclude modules if the modules_excluded list is provided
-    if modules_excluded is not None:
-        modules_used = [mid for mid in modules_used if mid not in modules_excluded]
-                        
     # Remove existing smoothed annotation columns if they exist
-    existing_columns = [f"{mid}_anno_smooth" for mid in modules_used if f"{mid}_anno_smooth" in adata.obs]
+    existing_columns = [f"{mid}_anno_smooth" for mid in mods if f"{mid}_anno_smooth" in adata.obs]
     if existing_columns:
         print(f"Removing existing smooth annotation columns: {existing_columns}")
         adata.obs.drop(columns=existing_columns, inplace=True)
+    
+    # Parse add threshold
+    if isinstance(min_add_neighbors, str):
+        if min_add_neighbors == 'half':
+            add_thresh = max(1, k_neighbors // 2)
+        elif min_add_neighbors == 'none':
+            add_thresh = None
+        else:
+            raise ValueError("min_add_neighbors must be 'half', 'none', or int")
+    else:
+        add_thresh = int(min_add_neighbors)
+        if add_thresh < 1:
+            raise ValueError("min_add_neighbors must be >=1 when integer")
 
-    # Extract spatial coordinates and the annotation columns to be smoothed
-    embedding_coords = adata.obsm[embedding_key]
-    module_annotations = adata.obs.loc[:, [f"{mid}_anno" for mid in modules_used]]
-    # Reset the module id anno to 0/1 anno
-    for col in module_annotations.columns:
-        orig_name = col.replace("_anno", "")
-        module_annotations[col] = (module_annotations[col] == orig_name).astype(int)
+    # Process each module
+    for mod in mods:
+        anno_col = f"{mod}_anno"
+        exp_col = f"{mod}_exp"
+        if anno_col not in adata.obs or exp_col not in adata.obs:
+            if verbose:
+                print(f"skip {mod}: missing anno/exp")
+            continue
 
-        n_cells, _ = module_annotations.shape
+        a = (adata.obs[anno_col] == mod).astype(int).values
+        E = adata.obs[exp_col].values
 
-    # Compute KNN neighbors based on the embedding coordinates
-    print(f"\nCalculating {k_neighbors} nearest neighbors for each cell based on {embedding_key} embedding...\n")
-    k = k_neighbors + 1  # include self
-    nbrs = NearestNeighbors(n_neighbors=k, metric='euclidean').fit(embedding_coords)
-    _, indices = nbrs.kneighbors(embedding_coords)  # indices: KNN indices for each cell
+        # Compute weight and cap
+        try:
+            thr = stats_df.set_index('module_id').loc[mod, 'threshold']
+        except KeyError:
+            thr = np.percentile(E, 90)
+        w = E / thr
+        w = np.minimum(w, max_weight_ratio)
 
-    # Initialize the smoothed annotation matrix
-    smooth_annotations = np.zeros_like(module_annotations, dtype=int)
+        # Determine border protection
+        total_pos = a.sum()
+        frac_border = (border_mask & (a == 1)).sum() / total_pos if total_pos > 0 else 0
+        protect_border = frac_border > border_protect_fraction
 
-    # Smooth each module's annotation
-    for mid in module_annotations.columns:
-        module_values = module_annotations[mid].values  # current module's annotation values
-        smooth_values = np.zeros(n_cells, dtype=int)  # initialize smoothed values
+        # Stage 1: drop isolated positives
+        b1 = np.zeros_like(a)
+        for i in range(len(a)):
+            if a[i] != 1:
+                continue
+            neigh = knn_idx[i]
+            support = np.sum(a[neigh] * w[neigh])
+            required = 0.0 if (border_mask[i] and protect_border) else float(min_drop_neighbors)
+            b1[i] = 1 if support >= required else 0
 
-        for i in range(n_cells):
-            if module_values[i] == 1:  # only process cells with annotation 1
-                neighbor_values = module_values[indices[i, 1:]]  # KNN neighbor annotations (excluding self)
-                if np.sum(neighbor_values) >= min_annotated_neighbors:  # if at least min_annotated_neighbors neighbors are 1
-                    smooth_values[i] = 1
+        # Stage 2: add supported negatives
+        b2 = b1.copy()
+        if add_thresh is not None:
+            for i in range(len(a)):
+                if b1[i] == 1:
+                    continue
+                cnt = np.sum(b1[knn_idx[i]])
+                if cnt >= add_thresh:
+                    b2[i] = 1
 
-        # Store the smoothed values in the matrix
-        smooth_annotations[:, module_annotations.columns.get_loc(mid)] = smooth_values
-        print(f"{mid.replace('_anno', '')} processed. removed cells: {np.sum(module_values) - np.sum(smooth_values)}, remain cells: {np.sum(smooth_values)}")
+        # Write smoothed annotation
+        out_col = f"{mod}_anno_smooth"
+        adata.obs[out_col] = pd.Categorical(np.where(b2, mod, None))
 
-    # Save the smoothed annotations to adata.obs
-    smooth_annotations = pd.DataFrame(smooth_annotations,
-                                      index=adata.obs_names,
-                                      columns=[f"{mid}_smooth" for mid in module_annotations.columns])
-    # Reset the 0/1 anno to module id or None
-    for col in smooth_annotations.columns:
-        orig_name = col.replace("_anno_smooth", "")
-        smooth_annotations[col] = np.where(smooth_annotations[col] == 1, orig_name, None)
-        smooth_annotations[col] = pd.Categorical(smooth_annotations[col])
-    adata.obs = pd.concat([adata.obs, smooth_annotations], axis=1)
+        if verbose:
+            after = b2.sum()
+            print(f"{mod} processed. remain cells: {after}")
 
-    print("\nAnnotation smoothing completed. Results stored in adata.obs.\n")
+    if verbose:
+        print("\nAnnotation smoothing completed. Results stored in adata.obs.\n")
 
 
 # annotate_with_ggm
@@ -790,21 +847,26 @@ def annotate_with_ggm(
     ggm_key='ggm',
     top_genes=30,
     weighted=True,
-    calculate_gene_moran=False,  
-    calculate_module_moran=True, 
-    embedding_key='spatial',  
-    k_neighbors_for_moran=6,          
+    calculate_gene_moran=False,
+    calculate_module_moran=True,
+    embedding_key='spatial',
+    k_neighbors_for_moran=6,
     add_go_anno=3,
-    
     max_iter=200,
     prob_threshold=0.99,
     min_samples=10,
     n_components=3,
     enable_fallback=True,
     random_state=42,
-    
     k_neighbors_for_smooth=24,
-    min_annotated_neighbors=1
+    min_drop_neighbors=1,
+    min_add_neighbors='half',
+    max_weight_ratio=1.5,
+    border_iqr_factor=1.5,
+    border_protect_fraction=0.3,
+    modules_used=None,
+    modules_excluded=None,
+    verbose=True
 ):
     """
     Execute the Annotate and Smooth pipeline for GGM analysis in one step:
@@ -841,13 +903,18 @@ def annotate_with_ggm(
       ggm_key: Key for storing GGM information in adata, default 'ggm'. same as above.
       embedding_key: Key in adata.obsm that stores spatial coordinates, default 'spatial'. same as above.
       k_neighbors_for_smooth: Number of KNN neighbors used for smoothing annotations, default 24.
-      min_annotated_neighbors: Minimum number of annotated neighbors required to retain a positive annotation, default 1.
-      (Note: Optional parameters like modules_used and modules_excluded are handled within the function.)
+      min_drop_neighbors: Minimum number of annotated neighbors required to retain a positive annotation, default 1.
+      min_add_neighbors: 'half'|'none'|int for smoothing addition, default 'half'.
+      max_weight_ratio: Cap for expression ratio in smoothing, default 1.5.
+      border_iqr_factor: IQR factor for border detection in smoothing, default 1.5.
+      border_protect_fraction: Fraction threshold for protecting border cells in smoothing, default 0.3.
+      modules_used: Modules to smooth; default None.
+      modules_excluded: Modules to exclude from smoothing; default None.
 
     Returns:
-      The updated AnnData object with module expression, cell annotations, and smoothed results stored in .obs and .obsm.
+      The updated AnnData object with module expression, cell annotations, and smoothed results stored in .obs.
     """
-    # Compute module average expression
+    # 1. Compute module average expression
     print("============ Calculating module average expression ============")
     calculate_module_expression(
         adata=adata,
@@ -860,8 +927,8 @@ def annotate_with_ggm(
         k_neighbors=k_neighbors_for_moran,
         add_go_anno=add_go_anno
     )
-    
-    # Annotate cells based on module expression
+
+    # 2. Annotate cells with GMM
     print("\n======== Annotating cells based on module expression ========")
     calculate_gmm_annotations(
         adata=adata,
@@ -876,17 +943,25 @@ def annotate_with_ggm(
         enable_fallback=enable_fallback,
         random_state=random_state
     )
-    
-    # Smooth cell annotations spatially
+
+    # 3. Smooth annotations spatially
     print("\n=================== Smoothing annotations ===================")
     smooth_annotations(
         adata=adata,
         ggm_key=ggm_key,
+        modules_used=modules_used,
+        modules_excluded=modules_excluded,
         embedding_key=embedding_key,
         k_neighbors=k_neighbors_for_smooth,
-        min_annotated_neighbors=min_annotated_neighbors
+        min_drop_neighbors=min_drop_neighbors,
+        min_add_neighbors=min_add_neighbors,
+        max_weight_ratio=max_weight_ratio,
+        border_iqr_factor=border_iqr_factor,
+        border_protect_fraction=border_protect_fraction,
+        verbose=verbose
     )
     print("\n============= Finished annotating and smoothing =============")
+
 
 
 # integrate_annotations
@@ -1148,6 +1223,94 @@ def integrate_annotations(
 
 ############################################################################################################
 # Old functions
+# smooth_annotations_noadd
+def smooth_annotations_noadd(adata,
+                            ggm_key='ggm', 
+                            modules_used=None,
+                            modules_excluded=None, 
+                            embedding_key='spatial', k_neighbors=24, min_annotated_neighbors=1):
+    """
+    Smooth spatial annotations by processing each module's annotation.
+    
+    Parameters:
+      adata (anndata.AnnData): AnnData object containing spatial transcriptomics data.
+      ggm_key (str): Key for the GGM object in adata.uns['ggm_keys'].
+      modules_used (list): List of modules to smooth; if None, all modules are used.(default None)
+      modules_excluded (list): List of modules to exclude from smoothing (default None).
+      embedding_key (str): Key in adata.obsm for spatial coordinates (default 'spatial').
+      k_neighbors (int): Number of KNN neighbors (default 24); may need adjustment based on technology and cell density.
+      min_annotated_neighbors (int): Minimum number of neighbors with annotation 1 required to retain the annotation (default 1).
+    """
+    if ggm_key not in adata.uns['ggm_keys']:
+        raise ValueError(f"{ggm_key} not found in adata.uns['ggm_keys']")
+    
+    module_stats_key = adata.uns['ggm_keys'][ggm_key]['module_stats']
+
+    # Check input: ensure the embedding key exists in adata.obsm
+    if embedding_key not in adata.obsm:
+        raise ValueError(f"{embedding_key} not found in adata.obsm. Please ensure the coordinate exists.")
+    
+    # If modules_used is not provided, get all modules from adata.uns['module_stats']
+    if modules_used is None:
+        modules_used = adata.uns[module_stats_key]['module_id'].unique()
+    # Exclude modules if the modules_excluded list is provided
+    if modules_excluded is not None:
+        modules_used = [mid for mid in modules_used if mid not in modules_excluded]
+                        
+    # Remove existing smoothed annotation columns if they exist
+    existing_columns = [f"{mid}_anno_smooth" for mid in modules_used if f"{mid}_anno_smooth" in adata.obs]
+    if existing_columns:
+        print(f"Removing existing smooth annotation columns: {existing_columns}")
+        adata.obs.drop(columns=existing_columns, inplace=True)
+
+    # Extract spatial coordinates and the annotation columns to be smoothed
+    embedding_coords = adata.obsm[embedding_key]
+    module_annotations = adata.obs.loc[:, [f"{mid}_anno" for mid in modules_used]]
+    # Reset the module id anno to 0/1 anno
+    for col in module_annotations.columns:
+        orig_name = col.replace("_anno", "")
+        module_annotations[col] = (module_annotations[col] == orig_name).astype(int)
+
+        n_cells, _ = module_annotations.shape
+
+    # Compute KNN neighbors based on the embedding coordinates
+    print(f"\nCalculating {k_neighbors} nearest neighbors for each cell based on {embedding_key} embedding...\n")
+    k = k_neighbors + 1  # include self
+    nbrs = NearestNeighbors(n_neighbors=k, metric='euclidean').fit(embedding_coords)
+    _, indices = nbrs.kneighbors(embedding_coords)  # indices: KNN indices for each cell
+
+    # Initialize the smoothed annotation matrix
+    smooth_annotations = np.zeros_like(module_annotations, dtype=int)
+
+    # Smooth each module's annotation
+    for mid in module_annotations.columns:
+        module_values = module_annotations[mid].values  # current module's annotation values
+        smooth_values = np.zeros(n_cells, dtype=int)  # initialize smoothed values
+
+        for i in range(n_cells):
+            if module_values[i] == 1:  # only process cells with annotation 1
+                neighbor_values = module_values[indices[i, 1:]]  # KNN neighbor annotations (excluding self)
+                if np.sum(neighbor_values) >= min_annotated_neighbors:  # if at least min_annotated_neighbors neighbors are 1
+                    smooth_values[i] = 1
+
+        # Store the smoothed values in the matrix
+        smooth_annotations[:, module_annotations.columns.get_loc(mid)] = smooth_values
+        print(f"{mid.replace('_anno', '')} processed. removed cells: {np.sum(module_values) - np.sum(smooth_values)}, remain cells: {np.sum(smooth_values)}")
+
+    # Save the smoothed annotations to adata.obs
+    smooth_annotations = pd.DataFrame(smooth_annotations,
+                                      index=adata.obs_names,
+                                      columns=[f"{mid}_smooth" for mid in module_annotations.columns])
+    # Reset the 0/1 anno to module id or None
+    for col in smooth_annotations.columns:
+        orig_name = col.replace("_anno_smooth", "")
+        smooth_annotations[col] = np.where(smooth_annotations[col] == 1, orig_name, None)
+        smooth_annotations[col] = pd.Categorical(smooth_annotations[col])
+    adata.obs = pd.concat([adata.obs, smooth_annotations], axis=1)
+
+    print("\nAnnotation smoothing completed. Results stored in adata.obs.\n")
+
+# integrate_annotations_noweight
 def integrate_annotations_noweight(adata,
                                     ggm_key='ggm',
                                     cross_ggm = False,

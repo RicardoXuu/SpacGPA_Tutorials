@@ -703,6 +703,7 @@ def smooth_annotations_enhanced_2(
     knn_idx = knn_idx[:,1:]
     dir_vecs = coords[:,None,:] - coords[knn_idx]
     slice_edge = _calc_slice_edge_flags(coords, k_neighbors)
+    print(f"slice_edge: {slice_edge.sum()} cells are slice edges")
 
     # 3. 确定模块列表
     all_mods = stats_df['module_id'].values
@@ -726,13 +727,17 @@ def smooth_annotations_enhanced_2(
         # 4.2 计算阈值 & 权重截断
         try:
             thr = stats_df.set_index('module_id').loc[mod, 'threshold']
+            print(f"{mod}: threshold = {thr}")
         except KeyError:
             thr = np.percentile(E, 90)
         w = E / thr
         w[w > weight_clip] = weight_clip
+        print(w.mean(), w.max(), thr)
 
         # 4.3 模块边缘检测
         mod_edge = _detect_module_edges(a, knn_idx, dir_vecs, min_annotated_neighbors)
+        if verbose:
+            print(f"{mod}: {mod_edge.sum()} cells are module edges")
 
         # 4.4 阶段1：保留（边缘细胞 required=0）
         b1 = np.zeros(N, dtype=int)
@@ -779,9 +784,358 @@ smooth_annotations_enhanced_2(
     modules_used=None,     
     modules_excluded=None,
     embedding_key='spatial',
-    k_neighbors=24,               # 默认24邻居
-    min_annotated_neighbors=4,    # 保留时至少累积权重和≥1
-    min_neighbors_to_add=12,       # 补全时至少累积权重和≥3
+    k_neighbors=18,               # 默认24邻居
+    min_annotated_neighbors=2,    # 保留时至少累积权重和≥1
+    min_neighbors_to_add=9,       # 补全时至少累积权重和≥3
+    verbose=True
+)
+
+
+# %%
+# 方案5
+import numpy as np
+import pandas as pd
+from sklearn.neighbors import NearestNeighbors
+
+def _calc_border_flags(coords, k, iqr_factor=1.5):
+    """
+    判定切片边界细胞：第 k 近邻平均距离 > Q3 + iqr_factor*(Q3-Q1) 为边界细胞。
+    返回 (border_flags, knn_dists)。
+    """
+    nbrs = NearestNeighbors(n_neighbors=k+1, metric='euclidean').fit(coords)
+    dists, _ = nbrs.kneighbors(coords)
+    mean_k = dists[:,1:].mean(axis=1)
+    q1, q3 = np.percentile(mean_k, [25,75])
+    thr = q3 + iqr_factor * (q3 - q1)
+    return mean_k > thr, dists[:,1:]
+
+def smooth_annotations_enhanced_3(
+        adata,
+        ggm_key='ggm',
+        modules_used=None,
+        modules_excluded=None,
+        embedding_key='spatial',
+        k_neighbors=24,
+        min_drop_neighbors=1,
+        min_add_neighbors='half',
+        max_weight_ratio=1.5,
+        border_iqr_factor=1.5,
+        border_protect_fraction=0.3,
+        verbose=True):
+    """
+    平滑空间注释（考虑切片边界保护，按邻居数补全）。
+
+    参数:
+      adata: AnnData，需含 `<mod>_anno` 和 `<mod>_exp` 列
+      ggm_key: str, adata.uns['ggm_keys'] 中的键
+      modules_used: list 或 None, 要平滑的模块
+      modules_excluded: list 或 None, 排除平滑的模块
+      embedding_key: str, 空间坐标字段
+      k_neighbors: int, KNN 邻居数（不含自身）
+      min_keep_neighbors: int, 阳性细胞保留所需最少同模块邻居数
+      min_add_neighbors: 'half' | 'none' | int, 补全所需邻居数（'half' = k_neighbors/2, 'none' 禁用）
+      max_weight_ratio: float, 表达/阈值 最大截断倍数
+      border_iqr_factor: float, 边界判定 IQR 因子
+      border_protect_fraction: float, 若模块原注释中边界细胞比例 > 此值，则保护边界细胞
+      verbose: bool, 是否打印进度
+    """
+    # 1. module_stats
+    if ggm_key not in adata.uns.get('ggm_keys', {}):
+        raise ValueError(f"{ggm_key} not found in adata.uns['ggm_keys']")
+    stats_key = adata.uns['ggm_keys'][ggm_key]['module_stats']
+    stats_df = adata.uns[stats_key]
+
+    # 2. coords + KNN + border flags
+    coords = adata.obsm.get(embedding_key)
+    if coords is None:
+        raise ValueError(f"{embedding_key} not found in adata.obsm")
+    N = coords.shape[0]
+    nbrs = NearestNeighbors(n_neighbors=k_neighbors+1, metric='euclidean').fit(coords)
+    knn_dists_all, knn_idx_all = nbrs.kneighbors(coords)
+    knn_idx = knn_idx_all[:,1:]
+    knn_dists = knn_dists_all[:,1:]
+    border_mask, _ = _calc_border_flags(coords, k_neighbors, border_iqr_factor)
+
+    # 3. modules to process
+    all_mods = stats_df['module_id'].values
+    mods = list(all_mods) if modules_used is None else [m for m in modules_used if m in all_mods]
+    if modules_excluded:
+        mods = [m for m in mods if m not in modules_excluded]
+
+    # 4. parse min_add_neighbors
+    if isinstance(min_add_neighbors, str):
+        if min_add_neighbors == 'half':
+            add_thresh = max(1, k_neighbors // 2)
+        elif min_add_neighbors == 'none':
+            add_thresh = None
+        else:
+            raise ValueError("min_add_neighbors must be 'half', 'none', or a positive integer")
+    else:
+        add_thresh = int(min_add_neighbors)
+        if add_thresh < 1:
+            raise ValueError("min_add_neighbors must be >= 1 when integer")
+
+    # 5. per-module smoothing
+    for mod in mods:
+        anno_col = f"{mod}_anno"
+        exp_col = f"{mod}_exp"
+        if anno_col not in adata.obs or exp_col not in adata.obs:
+            if verbose:
+                print(f"skip {mod}: missing columns")
+            continue
+
+        # original labels & expression
+        a = (adata.obs[anno_col] == mod).astype(int).values
+        E = adata.obs[exp_col].values
+
+        # threshold & weight clipping
+        try:
+            thr = stats_df.set_index('module_id').loc[mod, 'threshold']
+        except KeyError:
+            thr = np.percentile(E, 90)
+        w = E / thr
+        w[w > max_weight_ratio] = max_weight_ratio
+
+        # decide whether protect border cells
+        total_pos = a.sum()
+        frac_border = (border_mask & (a == 1)).sum() / total_pos if total_pos > 0 else 0
+        protect_border = frac_border > border_protect_fraction
+
+        # stage1: keep
+        b1 = np.zeros(N, dtype=int)
+        for i in range(N):
+            if a[i] != 1:
+                continue
+            neigh = knn_idx[i]
+            S = np.sum(a[neigh] * w[neigh])
+            req = 0.0 if (border_mask[i] and protect_border) else float(min_drop_neighbors)
+            b1[i] = 1 if S >= req else 0
+
+        # stage2: add
+        b2 = b1.copy()
+        if add_thresh is not None:
+            for i in range(N):
+                if b1[i] == 1:
+                    continue
+                cnt = np.sum(b1[knn_idx[i]])
+                if cnt >= add_thresh:
+                    b2[i] = 1
+
+        # write back
+        out_col = f"{mod}_anno_smooth_enhanced_3"
+        adata.obs[out_col] = pd.Categorical(np.where(b2, mod, None))
+
+        if verbose:
+            kept = b1.sum()
+            added = np.sum((b2 == 1) & (b1 == 0))
+            removed = np.sum((a == 1) & (b2 == 0))
+            print(f"{mod}: kept {kept}, added {added}, removed {removed}")
+
+    if verbose:
+        print("smoothing complete")
+
+
+# %%
+# 测试
+smooth_annotations_enhanced_3(
+    adata,
+    ggm_key='ggm',
+    modules_used=None,     
+    modules_excluded=None,
+    embedding_key='spatial',
+    k_neighbors=18,               # 默认24邻居
+    min_drop_neighbors=1,         
+    min_add_neighbors='half',     
+    border_iqr_factor=1.5,      # 边界判定 IQR 因子
+    border_protect_fraction=0.3, # 边界保护比例
+    verbose=True
+)
+
+
+
+
+# %%
+# 可视化
+for module in adata.uns['module_stats']['module_id']:
+    sc.pl.spatial(adata, size=1.6, alpha_img=0.5, frameon = False, color_map="Reds",ncols=4, 
+                  color=[f"{module}_exp",f"{module}_anno",f"{module}_anno_smooth",
+                         f"{module}_anno_smooth_advanced",f"{module}_anno_smooth_optimized", 
+                         f"{module}_anno_smooth_enhanced",f"{module}_anno_smooth_enhanced_3"],
+                  show=True)
+
+
+
+
+# %%
+# 最终方案
+import numpy as np
+import pandas as pd
+from sklearn.neighbors import NearestNeighbors
+def calc_border_flags(coords, k, iqr_factor=1.5):
+    """
+    Identify border cells based on neighbor distances.
+
+    Parameters:
+        coords (ndarray): Spatial coordinates, shape (N, D).
+        k (int): Number of neighbors to consider.
+        iqr_factor (float): Multiplier for IQR when setting distance threshold.
+
+    Returns:
+        border_mask (ndarray of bool): True for border cells.
+        knn_dists (ndarray): Distances to k nearest neighbors for each cell.
+    """
+    nbrs = NearestNeighbors(n_neighbors=k+1, metric='euclidean').fit(coords)
+    dists, _ = nbrs.kneighbors(coords)
+    mean_d = dists[:, 1:].mean(axis=1)
+    q1, q3 = np.percentile(mean_d, [25, 75])
+    threshold = q3 + iqr_factor * (q3 - q1)
+    border_mask = mean_d > threshold
+    return border_mask, dists[:, 1:]
+
+def smooth_annotations_enhanced(
+    adata,
+    ggm_key='ggm',
+    modules_used=None,
+    modules_excluded=None,
+    embedding_key='spatial',
+    k_neighbors=24,
+    min_drop_neighbors=1,
+    min_add_neighbors='half',
+    max_weight_ratio=1.5,
+    border_iqr_factor=1.5,
+    border_protect_fraction=0.3,
+    verbose=True
+):
+    """
+    Smooths module annotations by dropping isolated positives and adding supported negatives.
+
+    Parameters:
+        adata (AnnData): Must contain '<module>_anno' and '<module>_exp' in .obs.
+        ggm_key (str): Key under adata.uns['ggm_keys'] containing module_stats.
+        modules_used (list or None): Modules to process; None for all.
+        modules_excluded (list or None): Modules to skip.
+        embedding_key (str): Key in adata.obsm for coordinates.
+        k_neighbors (int): Number of neighbors (excluding self).
+        min_drop_neighbors (int): Minimum positive neighbors to retain a positive cell.
+        min_add_neighbors ('half'|'none'|int): Neighbors needed to add negatives.
+        max_weight_ratio (float): Cap for exp/threshold ratio.
+        border_iqr_factor (float): IQR factor for border detection.
+        border_protect_fraction (float): If fraction of positives on border exceeds this,
+            border positives are protected from dropping.
+        verbose (bool): Print before/after counts per module.
+    """
+    # Load module stats
+    if ggm_key not in adata.uns.get('ggm_keys', {}):
+        raise KeyError(f"{ggm_key} not found in adata.uns['ggm_keys']")
+    stats_key = adata.uns['ggm_keys'][ggm_key]['module_stats']
+    stats_df = adata.uns[stats_key]
+
+    # Build KNN and detect border cells
+    coords = adata.obsm.get(embedding_key)
+    if coords is None:
+        raise KeyError(f"{embedding_key} not found in adata.obsm")
+    nbrs = NearestNeighbors(n_neighbors=k_neighbors+1, metric='euclidean').fit(coords)
+    knn_dists_all, knn_idx_all = nbrs.kneighbors(coords)
+    knn_idx = knn_idx_all[:, 1:]
+    knn_dists = knn_dists_all[:, 1:]
+    border_mask, _ = calc_border_flags(coords, k_neighbors, border_iqr_factor)
+
+    # Determine modules to process
+    all_mods = stats_df['module_id'].values
+    mods = list(all_mods) if modules_used is None else [m for m in modules_used if m in all_mods]
+    if modules_excluded:
+        mods = [m for m in mods if m not in modules_excluded]
+    
+    # Remove existing smoothed annotation columns if they exist
+    existing_columns = [f"{mid}_anno_smooth" for mid in mods if f"{mid}_anno_smooth" in adata.obs]
+    if existing_columns:
+        print(f"Removing existing smooth annotation columns: {existing_columns}")
+        adata.obs.drop(columns=existing_columns, inplace=True)
+    
+    # Parse add threshold
+    if isinstance(min_add_neighbors, str):
+        if min_add_neighbors == 'half':
+            add_thresh = max(1, k_neighbors // 2)
+        elif min_add_neighbors == 'none':
+            add_thresh = None
+        else:
+            raise ValueError("min_add_neighbors must be 'half', 'none', or int")
+    else:
+        add_thresh = int(min_add_neighbors)
+        if add_thresh < 1:
+            raise ValueError("min_add_neighbors must be >=1 when integer")
+
+    # Process each module
+    for mod in mods:
+        anno_col = f"{mod}_anno"
+        exp_col = f"{mod}_exp"
+        if anno_col not in adata.obs or exp_col not in adata.obs:
+            if verbose:
+                print(f"skip {mod}: missing anno/exp")
+            continue
+
+        a = (adata.obs[anno_col] == mod).astype(int).values
+        E = adata.obs[exp_col].values
+
+        # Compute weight and cap
+        try:
+            thr = stats_df.set_index('module_id').loc[mod, 'threshold']
+        except KeyError:
+            thr = np.percentile(E, 90)
+        w = E / thr
+        w = np.minimum(w, max_weight_ratio)
+
+        # Determine border protection
+        total_pos = a.sum()
+        frac_border = (border_mask & (a == 1)).sum() / total_pos if total_pos > 0 else 0
+        protect_border = frac_border > border_protect_fraction
+
+        # Stage 1: drop isolated positives
+        b1 = np.zeros_like(a)
+        for i in range(len(a)):
+            if a[i] != 1:
+                continue
+            neigh = knn_idx[i]
+            support = np.sum(a[neigh] * w[neigh])
+            required = 0.0 if (border_mask[i] and protect_border) else float(min_drop_neighbors)
+            b1[i] = 1 if support >= required else 0
+
+        # Stage 2: add supported negatives
+        b2 = b1.copy()
+        if add_thresh is not None:
+            for i in range(len(a)):
+                if b1[i] == 1:
+                    continue
+                cnt = np.sum(b1[knn_idx[i]])
+                if cnt >= add_thresh:
+                    b2[i] = 1
+
+        # Write smoothed annotation
+        out_col = f"{mod}_anno_smooth"
+        adata.obs[out_col] = pd.Categorical(np.where(b2, mod, None))
+
+        if verbose:
+            after = b2.sum()
+            print(f"{mod} processed. remain cells: {after}")
+
+
+    if verbose:
+        print("\nAnnotation smoothing completed. Results stored in adata.obs.\n")
+
+
+# %%
+# 测试
+smooth_annotations_enhanced(
+    adata,
+    ggm_key='ggm',
+    modules_used=None,     
+    modules_excluded=None,
+    embedding_key='spatial',
+    k_neighbors=18,               # 默认24邻居
+    min_drop_neighbors=1,         
+    min_add_neighbors='half',     
+    border_iqr_factor=1.5,      # 边界判定 IQR 因子
+    border_protect_fraction=0.3, # 边界保护比例
     verbose=True
 )
 
@@ -792,9 +1146,8 @@ for module in adata.uns['module_stats']['module_id']:
     sc.pl.spatial(adata, size=1.6, alpha_img=0.5, frameon = False, color_map="Reds",ncols=4, 
                   color=[f"{module}_exp",f"{module}_anno",f"{module}_anno_smooth",
                          f"{module}_anno_smooth_advanced",f"{module}_anno_smooth_optimized", 
-                         f"{module}_anno_smooth_enhanced",f"{module}_anno_smooth_enhanced_2"],
+                         f"{module}_anno_smooth_enhanced",f"{module}_anno_smooth_enhanced_3"],
                   show=True)
-
 
 
 

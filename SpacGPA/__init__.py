@@ -6,7 +6,7 @@ from .enrich_analysis import go_enrichment_analysis, mp_enrichment_analysis, get
 from .module_show import get_module_edges, get_module_anno
 from .anno_cells import calculate_module_expression, calculate_gmm_annotations, smooth_annotations
 from .anno_cells import annotate_with_ggm, integrate_annotations 
-from .anno_cells import integrate_annotations_noweight,integrate_annotations_old
+from .anno_cells import smooth_annotations_noadd, integrate_annotations_noweight, integrate_annotations_old
 from .preprocessing import detect_duplicated_genes, detect_zero_in_csr
 from .par_optimization import find_best_inflation, classify_modules, calculate_module_overlap
 from .save_ggm import save_ggm, load_ggm
@@ -21,7 +21,7 @@ __all__ = [
     'calculate_module_expression', 'calculate_gmm_annotations', 'smooth_annotations', 
     'annotate_with_ggm', 'integrate_annotations', 
     'find_best_inflation', 'classify_modules', 'calculate_module_overlap',
-    'integrate_annotations_noweight', 'integrate_annotations_old',
+    'smooth_annotations_noadd', 'integrate_annotations_noweight', 'integrate_annotations_old',
     'detect_duplicated_genes', 'detect_zero_in_csr',
     'save_ggm', 'load_ggm'
 ]
