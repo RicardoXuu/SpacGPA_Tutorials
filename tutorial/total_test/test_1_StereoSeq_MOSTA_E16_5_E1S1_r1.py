@@ -214,16 +214,23 @@ adata.uns['module_filtering']['type_tag'].value_counts()
 
 
 # %%
+module_used = adata.uns['module_filtering'][adata.uns['module_filtering']['type_tag']=='cell_identity_module']['module_id'].tolist()
+
+# %%
+module_used
+
+# %%
 # 测试新版函数
 sg.integrate_annotations(
     adata,
     ggm_key='ggm',
+    modules_used=module_used,
     #modules_excluded=['M15', 'M18'],        
     #modules_preferred=['M28', 'M38'],
     result_anno='annotation_new',
     k_neighbors=24,
     lambda_pair=0.3,
-    purity_adjustment=True,
+    purity_adjustment=False,
     w_floor=0.01,
     lr=0.5,
     target_purity=0.85,

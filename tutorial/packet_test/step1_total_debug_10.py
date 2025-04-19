@@ -79,6 +79,7 @@ sg.smooth_annotations(adata,
 
 
 # %%
+# 方案1
 from sklearn.neighbors import NearestNeighbors
 import numpy as np
 import pandas as pd
@@ -237,14 +238,7 @@ smooth_annotations_optimized(adata, ggm_key='ggm',
 
 
 # %%
-for module in adata.uns['module_stats']['module_id']:
-    sc.pl.spatial(adata, size=1.6, alpha_img=0.5, frameon = False, color_map="Reds", 
-                  color=[f"{module}_exp",f"{module}_anno",
-                         f"{module}_anno_smooth",f"{module}_anno_smooth_optimized"],show=True)
-# %%
-
-
-# %%
+# 方案2
 import numpy as np
 import pandas as pd
 from sklearn.neighbors import NearestNeighbors
@@ -473,26 +467,369 @@ smooth_annotations_advanced(adata,
                             max_iter=10,
                             tolerance=1e-3)
 
+
 # %%
-for module in adata.uns['module_stats']['module_id']:
-    sc.pl.spatial(adata, size=1.6, alpha_img=0.5, frameon = False, color_map="Reds",ncols=5, 
-                  color=[f"{module}_exp",f"{module}_anno",f"{module}_anno_smooth",
-                         f"{module}_anno_smooth_advanced",f"{module}_anno_smooth_optimized"],show=True)
-
-
-
-
- 
+# 方案3
+def smooth_annotations_enhanced(adata, ggm_key='ggm', modules_used=None, modules_excluded=None,
+                                embedding_key='spatial', k_neighbors=24,
+                                min_annotated_neighbors=1, min_neighbors_to_add=2):
+    """
+    平滑空间注释（增强版）。
+    对每个模块的注释执行邻域支持过滤和补全，输出平滑后的注释结果。
     
+    参数：
+        adata : AnnData对象，包含空间转录组数据。
+        ggm_key : str，adata.uns['ggm_keys']中的键，用于找到module信息。
+        modules_used : list，可选，仅平滑指定的模块；默认None表示平滑所有模块。
+        modules_excluded : list，可选，不平滑这些模块。
+        embedding_key : str，空间坐标在adata.obsm中的键名，默认'spatial'。
+        k_neighbors : int，KNN邻居数，默认24。
+        min_annotated_neighbors : int，保留阳性标注所需的最少邻居数或等效权重，默认1。
+        min_neighbors_to_add : int，新增标注所需的最少邻居数或等效权重，默认2。
+    返回：
+        None（直接在adata.obs中添加/更新“模块_anno_smooth”列）。
+    """
+    # 检查ggm_key合法
+    if ggm_key not in adata.uns.get('ggm_keys', {}):
+        raise ValueError(f"{ggm_key} not found in adata.uns['ggm_keys']")
+    mod_info = adata.uns['ggm_keys'][ggm_key]
+    module_stats_key = mod_info.get('module_stats')
+    
+    # 确认空间坐标存在
+    if embedding_key not in adata.obsm:
+        raise ValueError(f"{embedding_key} not found in adata.obsm")
+    coords = adata.obsm[embedding_key]
+    N = coords.shape[0]
+    
+    # 决定要处理的模块列表
+    all_modules = adata.uns[module_stats_key]['module_id'].unique()
+    if modules_used is None:
+        modules_list = list(all_modules)
+    else:
+        modules_list = [m for m in modules_used if m in all_modules]
+    if modules_excluded:
+        modules_list = [m for m in modules_list if m not in modules_excluded]
+    
+    # 移除已有的平滑结果列，避免重复
+    for m in modules_list:
+        col_name = f"{m}_anno_smooth_enhanced"
+        if col_name in adata.obs:
+            adata.obs.drop(columns=[col_name], inplace=True)
+    
+    # 预计算KNN邻居索引（每个细胞的最近k_neighbors个邻居索引）
+    k = k_neighbors + 1  # 包含自身
+    nbrs_model = NearestNeighbors(n_neighbors=k, metric='euclidean').fit(coords)
+    _, knn_indices = nbrs_model.kneighbors(coords)
+    # knn_indices[i,0]是自身，因此实际邻居从索引1开始
+    knn_indices = knn_indices[:, 1:]
+    
+    # 初始化结果存储
+    smooth_results = {}
+    
+    # 遍历每个模块执行平滑
+    for mod in modules_list:
+        # 1. 获取模块初始注释（0/1）和模块表达量
+        anno_col = f"{mod}_anno"
+        exp_col = f"{mod}_exp"
+        if anno_col not in adata.obs or exp_col not in adata.obs:
+            # 若缺少该模块的注释或表达信息，则跳过
+            continue
+        # 将类别型anno列转换为0/1（1表示该模块）
+        a = (adata.obs[anno_col] == mod).astype(int).values  # 初始标注数组
+        E = adata.obs[exp_col].values                        # 模块表达值数组
+        # 从模块统计中获取阈值，如不存在则以经验值代替
+        try:
+            # threshold为调用阳性的表达阈值
+            threshold_val = adata.uns[module_stats_key].set_index('module_id').loc[mod, 'threshold']
+        except Exception as e:
+            threshold_val = np.percentile(E, 90)  # 取高表达的一个分位数作为近似阈值
+        # 准备数组保存阶段1和阶段2结果
+        b_temp = np.zeros(N, dtype=int)
+        b_final = np.zeros(N, dtype=int)
+        
+        # 2. 阶段1：根据邻居支持决定保留的标注
+        for i in range(N):
+            if a[i] == 1:
+                # 计算支持分数S_i
+                # 邻居权重求和，权重使用表达量相对threshold_val截断到1
+                neighbors = knn_indices[i]
+                # 只累加那些邻居j初始也为1的情况
+                # 将所有邻居的 a[j]*min(E[j]/threshold_val, 1) 相加
+                S_i = 0.0
+                for j in neighbors:
+                    if a[j] == 1:
+                        # 标注邻居贡献权重，未标注的不贡献
+                        w = E[j] / threshold_val
+                        if w > 1:
+                            w = 1.0
+                        S_i += w
+                # 判定是否保留，根据边缘与否采用不同阈值
+                # 简单边缘判定：邻居标注数< min_annotated_neighbors则认为是边缘
+                num_annotated_neighbors = (a[neighbors] == 1).sum()
+                if num_annotated_neighbors < min_annotated_neighbors:
+                    # 边缘细胞：降低要求（至少有一个标注邻居即可）
+                    required = 1.0
+                else:
+                    required = float(min_annotated_neighbors)
+                if S_i >= required:
+                    b_temp[i] = 1
+                else:
+                    b_temp[i] = 0
+            else:
+                b_temp[i] = 0  # 原本未标注的直接0（阶段1不会新增）
+        
+        # 3. 阶段2：在阶段1基础上补全遗漏标注
+        b_final[:] = b_temp  # 先拷贝阶段1的结果
+        for i in range(N):
+            if b_temp[i] == 0:
+                # 仅考虑原本和阶段1都未标注的细胞是否可以转为1
+                neighbors = knn_indices[i]
+                # 计算新的支持分数 S'_i （基于阶段1结果b_temp）
+                S_prime = 0.0
+                for j in neighbors:
+                    if b_temp[j] == 1:
+                        w = E[j] / threshold_val
+                        if w > 1:
+                            w = 1.0
+                        S_prime += w
+                # 自身表达条件
+                self_ok = (E[i] >= 0.5 * threshold_val)
+                # 邻居数量判断用于边缘检测
+                num_final_neighbors = (b_temp[neighbors] == 1).sum()
+                # 若周围几乎都是该模块但自己未标注，且自身表达过半阈值，则补全
+                if S_prime >= min_neighbors_to_add and self_ok:
+                    # 另外防止跨模块：如果该细胞原本属于其他模块（初始a_other=1），这里不补
+                    # 简化实现：若它在任何其他模块初始标注=1，则跳过
+                    # （假设integrate_annotations稍后处理，此处不细查）
+                    b_final[i] = 1
+                # （我们暂不在代码中细分边缘内部，这里统一用min_neighbors_to_add判断）
+        # 将结果保存（先存为0/1，之后再赋模块名称或None）
+        smooth_results[mod] = b_final
+        # 打印模块处理信息
+        removed = (a.sum() - b_final.sum())
+        kept = b_final.sum()
+        print(f"{mod}: 移除了 {removed} 个细胞标注，保留/新增 {kept} 个细胞标注")
+    
+    # 4. 整理输出，将每个模块的平滑结果写入adata.obs
+    for mod, b_arr in smooth_results.items():
+        col_name = f"{mod}_anno_smooth_enhanced"
+        # 创建分类列：1用模块名表示，0用None表示
+        smooth_labels = np.where(b_arr == 1, mod, None)
+        adata.obs[col_name] = pd.Categorical(smooth_labels)
+
+    print("平滑处理完成，结果存储在adata.obs中。")
+
+
+# %%
+# 测试
+smooth_annotations_enhanced(adata, 
+                            ggm_key='ggm',
+                            embedding_key='spatial',
+                            k_neighbors=24,
+                            min_annotated_neighbors=2,
+                            min_neighbors_to_add=12)    
+
+
+# %%
+# 方案4
+import numpy as np
+import pandas as pd
+from sklearn.neighbors import NearestNeighbors
+
+def _calc_slice_edge_flags(coords, k, iqr_factor=1.5):
+    """
+    判定切片物理边缘细胞：计算每个细胞到其第 k 个邻居的平均距离，
+    若该距离 > Q3 + iqr_factor*(Q3 - Q1)，则视为切片边缘。
+    返回布尔数组长度 N。
+    """
+    nbrs = NearestNeighbors(n_neighbors=k + 1, metric="euclidean").fit(coords)
+    dists, _ = nbrs.kneighbors(coords)
+    mean_k = dists[:, 1:].mean(axis=1)
+    q1, q3 = np.percentile(mean_k, [25, 75])
+    thr = q3 + iqr_factor * (q3 - q1)
+    return mean_k > thr
+
+def _module_direction_edges(positive, nbr_idx, dir_vecs,
+                            min_pos, same_side_ratio=0.8, bins=8):
+    """
+    检测模块边缘：仅对阳性细胞(positive==1)且其阳性邻居数<min_pos进行方向集中度判定，
+    如果这些阳性邻居集中在同一方向比例 ≥ same_side_ratio，则认为该细胞为模块边缘。
+    返回布尔数组长度 N。
+    """
+    N = len(positive)
+    is_edge = np.zeros(N, dtype=bool)
+    for i in range(N):
+        if positive[i] != 1:
+            continue
+        neigh = nbr_idx[i]
+        mask = positive[neigh].astype(bool)
+        cnt = mask.sum()
+        if 0 < cnt < min_pos:
+            vecs = dir_vecs[i][mask]
+            angles = (np.arctan2(vecs[:,1], vecs[:,0]) + 2*np.pi) % (2*np.pi)
+            idx = (angles / (2*np.pi/bins)).astype(int)
+            counts = np.bincount(idx, minlength=bins)
+            if counts.max() / cnt >= same_side_ratio:
+                is_edge[i] = True
+    return is_edge
+
+def smooth_annotations_enhanced(
+        adata,
+        ggm_key='ggm',
+        modules_used=None,
+        modules_excluded=None,
+        embedding_key='spatial',
+        k_neighbors=24,
+        min_annotated_neighbors=1,
+        min_neighbors_to_add=3,
+        neighbor_ratio_add=0.75,
+        self_weight_min=0.6,
+        verbose=True):
+    """
+    增强版空间注释平滑函数（单模块内操作，无跨模块冲突，无空洞回滚）。
+
+    参数:
+        adata: AnnData，对象需含 `<mod>_anno` 和 `<mod>_exp` 列。
+        ggm_key: str, 在 `adata.uns['ggm_keys']` 中定位 module_stats 的键。
+        modules_used: list or None, 要平滑的模块列表；None 表示全部。
+        modules_excluded: list or None, 排除平滑的模块列表。
+        embedding_key: str, 空间坐标字段名，默认 'spatial'。
+        k_neighbors: int, KNN 中的邻居数（不含自身）。
+        min_annotated_neighbors: int, 阶段1 保留注释所需最少邻居权重和。
+        min_neighbors_to_add: int, 阶段2 补全注释所需最少邻居权重和。
+        neighbor_ratio_add: float, 补全时同模块邻居数 / k_neighbors ≥ 此值。
+        self_weight_min: float, 补全时自身表达权重 ≥ 此值。
+        verbose: bool, 是否打印每个模块的保留/补全/移除统计。
+    """
+    # 1) 验证并读取 module_stats
+    if ggm_key not in adata.uns.get('ggm_keys', {}):
+        raise ValueError(f"{ggm_key} not found in adata.uns['ggm_keys']")
+    module_stats_key = adata.uns['ggm_keys'][ggm_key]['module_stats']
+    stats_df = adata.uns[module_stats_key]
+
+    # 2) 空间坐标 + KNN
+    if embedding_key not in adata.obsm:
+        raise ValueError(f"{embedding_key} not found in adata.obsm")
+    coords = adata.obsm[embedding_key]
+    N = coords.shape[0]
+    k = k_neighbors + 1
+    nbrs = NearestNeighbors(n_neighbors=k, metric='euclidean').fit(coords)
+    _, knn_idx = nbrs.kneighbors(coords)
+    knn_idx = knn_idx[:, 1:]
+    dir_vecs = coords[:, None, :] - coords[knn_idx]
+    slice_edge = _calc_slice_edge_flags(coords, k_neighbors)
+
+    # 3) 确定模块列表
+    all_mods = stats_df['module_id'].values
+    mods = list(all_mods) if modules_used is None else [m for m in modules_used if m in all_mods]
+    if modules_excluded:
+        mods = [m for m in mods if m not in modules_excluded]
+
+    # 4) 对每个模块执行平滑
+    for mod in mods:
+        anno_col = f"{mod}_anno"
+        exp_col  = f"{mod}_exp"
+        if anno_col not in adata.obs or exp_col not in adata.obs:
+            if verbose:
+                print(f"skip {mod}: missing columns")
+            continue
+
+        # 4.1 初始注释 & 表达
+        a0 = (adata.obs[anno_col] == mod).astype(int).values  # 0/1
+        E  = adata.obs[exp_col].values                       # 连续表达
+
+        # 4.2 线性映射 = 归一化权重
+        pos = E[a0 == 1]
+        neg = E[a0 == 0]
+        if pos.size and neg.size:
+            mu1, mu0 = pos.mean(), neg.mean()
+        else:
+            mu0, mu1 = np.percentile(E, [5, 95])
+        if mu1 <= mu0:
+            w = np.zeros(N)
+        else:
+            w = ((E - mu0) / (mu1 - mu0)).clip(0, 1)
+
+        # 4.3 阶段1: 保留原阳性
+        b1 = np.zeros(N, dtype=int)
+        mod_edge = _module_direction_edges(a0, knn_idx, dir_vecs, min_annotated_neighbors)
+        for i in range(N):
+            if a0[i] == 0:
+                continue
+            neigh = knn_idx[i]
+            S = (a0[neigh] * w[neigh]).sum()
+            edge_flag = slice_edge[i] or mod_edge[i]
+            thr = 0.5 if edge_flag else min_annotated_neighbors
+            b1[i] = 1 if S >= thr else 0
+
+        # 4.4 阶段2: 补全原阴性
+        b2 = b1.copy()
+        pos_mat = b1[knn_idx]
+        for i in range(N):
+            if b1[i] or slice_edge[i]:
+                continue
+            cnt   = pos_mat[i].sum()
+            ratio = cnt / k_neighbors
+            if cnt >= min_neighbors_to_add and ratio >= neighbor_ratio_add and w[i] >= self_weight_min:
+                b2[i] = 1
+
+        # 4.5 写回
+        out_col = f"{mod}_anno_smooth_enhanced"
+        adata.obs[out_col] = pd.Categorical(np.where(b2, mod, None))
+
+        if verbose:
+            kept    = b1.sum()
+            added   = b2.sum() - kept
+            removed = a0.sum() - b2.sum()
+            print(f"{mod}: keep {kept}, add {added}, remove {removed}")
+
+    if verbose:
+        print("smoothing complete")
+
+
+
+# %%
+# 测试
+smooth_annotations_enhanced(
+    adata,
+    ggm_key='ggm',
+    modules_used=None,            # 或 ['M1','M2','M3']
+    modules_excluded=None,
+    embedding_key='spatial',
+    k_neighbors=24,               # 默认24邻居
+    min_annotated_neighbors=1,    # 保留时至少累积权重和≥1
+    min_neighbors_to_add=3,       # 补全时至少累积权重和≥3
+    neighbor_ratio_add=0.75,      # 补全时邻居 ≥75% 为阳性
+    self_weight_min=0.6,          # 补全时自身权重 ≥0.6
+    verbose=True
+)
+
+
+# %%
+# 可视化
+for module in adata.uns['module_stats']['module_id']:
+    sc.pl.spatial(adata, size=1.6, alpha_img=0.5, frameon = False, color_map="Reds",ncols=3, 
+                  color=[f"{module}_exp",f"{module}_anno",f"{module}_anno_smooth",
+                         f"{module}_anno_smooth_advanced",f"{module}_anno_smooth_optimized", f"{module}_anno_smooth_enhanced"],
+                  show=True)
+
+
+
+
+
+
+
+
 # %%
 pdf_file = "figures/visium/CytAssist_FreshFrozen_Mouse_Brain_Rep2_smooth_methods.pdf"
 c = canvas.Canvas(pdf_file, pagesize=letter)
 image_files = []
 for module in adata.uns['module_stats']['module_id']:
     plt.figure()    
-    sc.pl.spatial(adata, size=1.6, alpha_img=0.5, frameon = False, color_map="Reds", ncols=5, 
+    sc.pl.spatial(adata, size=1.6, alpha_img=0.5, frameon = False, color_map="Reds", ncols=3, 
                   color=[f"{module}_exp",f"{module}_anno",f"{module}_anno_smooth",
-                         f"{module}_anno_smooth_advanced",f"{module}_anno_smooth_optimized"],show=False)
+                         f"{module}_anno_smooth_advanced",f"{module}_anno_smooth_optimized", f"{module}_anno_smooth_enhanced"],
+                  show=False)
     show_png_file = f"figures/visium/CytAssist_FreshFrozen_Mouse_Brain_Rep2_smooth_methods_{module}.png"
     plt.savefig(show_png_file, format="png", dpi=300, bbox_inches="tight")
     plt.close()
