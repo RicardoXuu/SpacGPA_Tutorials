@@ -35,16 +35,16 @@ start_time = time.time()
 ggm = sg.load_ggm("data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm.h5")
 print(f"Read ggm: {time.time() - start_time:.5f} s")
 # 读取联合分析的ggm
-ggm_mulit_intersection = sg.load_ggm("data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm_mulit_intersection.h5")
-print(f"Read ggm_mulit_intersection: {time.time() - start_time:.5f} s")
-ggm_mulit_union = sg.load_ggm("data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm_mulit_union.h5")
-print(f"Read ggm_mulit_union: {time.time() - start_time:.5f} s")
+# ggm_mulit_intersection = sg.load_ggm("data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm_mulit_intersection.h5")
+# print(f"Read ggm_mulit_intersection: {time.time() - start_time:.5f} s")
+# ggm_mulit_union = sg.load_ggm("data/CytAssist_FreshFrozen_Mouse_Brain_Rep2.ggm_mulit_union.h5")
+# print(f"Read ggm_mulit_union: {time.time() - start_time:.5f} s")
 print("=====================================")
 print(ggm)
-print("=====================================")
-print(ggm_mulit_intersection)
-print("=====================================")
-print(ggm_mulit_union)
+# print("=====================================")
+# print(ggm_mulit_intersection)
+# print("=====================================")
+# print(ggm_mulit_union)
 
 
 # %%
@@ -638,42 +638,41 @@ from sklearn.neighbors import NearestNeighbors
 
 def _calc_slice_edge_flags(coords, k, iqr_factor=1.5):
     """
-    判定切片物理边缘细胞：计算每个细胞到其第 k 个邻居的平均距离，
-    若该距离 > Q3 + iqr_factor*(Q3 - Q1)，则视为切片边缘。
-    返回布尔数组长度 N。
+    判定物理切片边缘细胞：计算每个细胞到其第 k 个邻居的平均距离，
+    若该距离 > Q3 + iqr_factor*(Q3 - Q1)，则认为是切片边缘。
+    返回长度 N 的布尔数组。
     """
-    nbrs = NearestNeighbors(n_neighbors=k + 1, metric="euclidean").fit(coords)
+    nbrs = NearestNeighbors(n_neighbors=k+1, metric='euclidean').fit(coords)
     dists, _ = nbrs.kneighbors(coords)
-    mean_k = dists[:, 1:].mean(axis=1)
-    q1, q3 = np.percentile(mean_k, [25, 75])
+    mean_k = dists[:,1:].mean(axis=1)
+    q1, q3 = np.percentile(mean_k, [25,75])
     thr = q3 + iqr_factor * (q3 - q1)
     return mean_k > thr
 
-def _module_direction_edges(positive, nbr_idx, dir_vecs,
-                            min_pos, same_side_ratio=0.8, bins=8):
+def _detect_module_edges(a, knn_idx, dir_vecs, min_neighbors):
     """
-    检测模块边缘：仅对阳性细胞(positive==1)且其阳性邻居数<min_pos进行方向集中度判定，
-    如果这些阳性邻居集中在同一方向比例 ≥ same_side_ratio，则认为该细胞为模块边缘。
-    返回布尔数组长度 N。
+    检测模块边缘：对 a[i]==1 且正邻居数 < min_neighbors 的细胞，
+    若这些阳性邻居集中在同一方向（比例 ≥ 0.8），则标为模块边缘。
     """
-    N = len(positive)
+    N = len(a)
     is_edge = np.zeros(N, dtype=bool)
+    bins = 8
     for i in range(N):
-        if positive[i] != 1:
+        if a[i] != 1:
             continue
-        neigh = nbr_idx[i]
-        mask = positive[neigh].astype(bool)
+        neigh = knn_idx[i]
+        mask = (a[neigh] == 1)
         cnt = mask.sum()
-        if 0 < cnt < min_pos:
+        if 0 < cnt < min_neighbors:
             vecs = dir_vecs[i][mask]
             angles = (np.arctan2(vecs[:,1], vecs[:,0]) + 2*np.pi) % (2*np.pi)
-            idx = (angles / (2*np.pi/bins)).astype(int)
-            counts = np.bincount(idx, minlength=bins)
-            if counts.max() / cnt >= same_side_ratio:
+            idxs = (angles / (2*np.pi/bins)).astype(int)
+            counts = np.bincount(idxs, minlength=bins)
+            if counts.max()/cnt >= 0.8:
                 is_edge[i] = True
     return is_edge
 
-def smooth_annotations_enhanced(
+def smooth_annotations_enhanced_2(
         adata,
         ggm_key='ggm',
         modules_used=None,
@@ -681,51 +680,37 @@ def smooth_annotations_enhanced(
         embedding_key='spatial',
         k_neighbors=24,
         min_annotated_neighbors=1,
-        min_neighbors_to_add=3,
-        neighbor_ratio_add=0.75,
-        self_weight_min=0.6,
+        min_neighbors_to_add=2,
+        weight_clip=1.5,
         verbose=True):
     """
-    增强版空间注释平滑函数（单模块内操作，无跨模块冲突，无空洞回滚）。
-
-    参数:
-        adata: AnnData，对象需含 `<mod>_anno` 和 `<mod>_exp` 列。
-        ggm_key: str, 在 `adata.uns['ggm_keys']` 中定位 module_stats 的键。
-        modules_used: list or None, 要平滑的模块列表；None 表示全部。
-        modules_excluded: list or None, 排除平滑的模块列表。
-        embedding_key: str, 空间坐标字段名，默认 'spatial'。
-        k_neighbors: int, KNN 中的邻居数（不含自身）。
-        min_annotated_neighbors: int, 阶段1 保留注释所需最少邻居权重和。
-        min_neighbors_to_add: int, 阶段2 补全注释所需最少邻居权重和。
-        neighbor_ratio_add: float, 补全时同模块邻居数 / k_neighbors ≥ 此值。
-        self_weight_min: float, 补全时自身表达权重 ≥ 此值。
-        verbose: bool, 是否打印每个模块的保留/补全/移除统计。
+    平滑空间注释（保留边缘不易删除，但正常补全所有细胞）。
     """
-    # 1) 验证并读取 module_stats
+    # 1. 获取 module_stats
     if ggm_key not in adata.uns.get('ggm_keys', {}):
         raise ValueError(f"{ggm_key} not found in adata.uns['ggm_keys']")
-    module_stats_key = adata.uns['ggm_keys'][ggm_key]['module_stats']
-    stats_df = adata.uns[module_stats_key]
+    stats_key = adata.uns['ggm_keys'][ggm_key]['module_stats']
+    stats_df  = adata.uns[stats_key]
 
-    # 2) 空间坐标 + KNN
-    if embedding_key not in adata.obsm:
-        raise ValueError(f"{embedding_key} not found in adata.obsm")
-    coords = adata.obsm[embedding_key]
+    # 2. 空间坐标与 KNN
+    coords = adata.obsm.get(embedding_key)
+    if coords is None:
+        raise ValueError(f"{embedding_key} not in adata.obsm")
     N = coords.shape[0]
     k = k_neighbors + 1
     nbrs = NearestNeighbors(n_neighbors=k, metric='euclidean').fit(coords)
     _, knn_idx = nbrs.kneighbors(coords)
-    knn_idx = knn_idx[:, 1:]
-    dir_vecs = coords[:, None, :] - coords[knn_idx]
+    knn_idx = knn_idx[:,1:]
+    dir_vecs = coords[:,None,:] - coords[knn_idx]
     slice_edge = _calc_slice_edge_flags(coords, k_neighbors)
 
-    # 3) 确定模块列表
+    # 3. 确定模块列表
     all_mods = stats_df['module_id'].values
     mods = list(all_mods) if modules_used is None else [m for m in modules_used if m in all_mods]
     if modules_excluded:
         mods = [m for m in mods if m not in modules_excluded]
 
-    # 4) 对每个模块执行平滑
+    # 4. 对每个模块执行平滑
     for mod in mods:
         anno_col = f"{mod}_anno"
         exp_col  = f"{mod}_exp"
@@ -734,54 +719,52 @@ def smooth_annotations_enhanced(
                 print(f"skip {mod}: missing columns")
             continue
 
-        # 4.1 初始注释 & 表达
-        a0 = (adata.obs[anno_col] == mod).astype(int).values  # 0/1
-        E  = adata.obs[exp_col].values                       # 连续表达
+        # 4.1 初始注释与表达
+        a = (adata.obs[anno_col] == mod).astype(int).values
+        E = adata.obs[exp_col].values
 
-        # 4.2 线性映射 = 归一化权重
-        pos = E[a0 == 1]
-        neg = E[a0 == 0]
-        if pos.size and neg.size:
-            mu1, mu0 = pos.mean(), neg.mean()
-        else:
-            mu0, mu1 = np.percentile(E, [5, 95])
-        if mu1 <= mu0:
-            w = np.zeros(N)
-        else:
-            w = ((E - mu0) / (mu1 - mu0)).clip(0, 1)
+        # 4.2 计算阈值 & 权重截断
+        try:
+            thr = stats_df.set_index('module_id').loc[mod, 'threshold']
+        except KeyError:
+            thr = np.percentile(E, 90)
+        w = E / thr
+        w[w > weight_clip] = weight_clip
 
-        # 4.3 阶段1: 保留原阳性
+        # 4.3 模块边缘检测
+        mod_edge = _detect_module_edges(a, knn_idx, dir_vecs, min_annotated_neighbors)
+
+        # 4.4 阶段1：保留（边缘细胞 required=0）
         b1 = np.zeros(N, dtype=int)
-        mod_edge = _module_direction_edges(a0, knn_idx, dir_vecs, min_annotated_neighbors)
         for i in range(N):
-            if a0[i] == 0:
+            if a[i] != 1:
                 continue
             neigh = knn_idx[i]
-            S = (a0[neigh] * w[neigh]).sum()
-            edge_flag = slice_edge[i] or mod_edge[i]
-            thr = 0.5 if edge_flag else min_annotated_neighbors
-            b1[i] = 1 if S >= thr else 0
+            S = np.sum(a[neigh] * w[neigh])
+            if slice_edge[i] or mod_edge[i]:
+                req = 0.0
+            else:
+                req = float(min_annotated_neighbors)
+            b1[i] = 1 if S >= req else 0
 
-        # 4.4 阶段2: 补全原阴性
+        # 4.5 阶段2：补全（边缘也可补全）
         b2 = b1.copy()
-        pos_mat = b1[knn_idx]
         for i in range(N):
-            if b1[i] or slice_edge[i]:
+            if b1[i] == 1:
                 continue
-            cnt   = pos_mat[i].sum()
-            ratio = cnt / k_neighbors
-            if cnt >= min_neighbors_to_add and ratio >= neighbor_ratio_add and w[i] >= self_weight_min:
+            cnt = np.sum(b1[knn_idx[i]])
+            if cnt >= min_neighbors_to_add:
                 b2[i] = 1
 
-        # 4.5 写回
-        out_col = f"{mod}_anno_smooth_enhanced"
+        # 4.6 写回结果
+        out_col = f"{mod}_anno_smooth_enhanced_2"
         adata.obs[out_col] = pd.Categorical(np.where(b2, mod, None))
 
         if verbose:
             kept    = b1.sum()
-            added   = b2.sum() - kept
-            removed = a0.sum() - b2.sum()
-            print(f"{mod}: keep {kept}, add {added}, remove {removed}")
+            added   = np.sum((b2==1) & (b1==0))
+            removed = np.sum((a==1) & (b2==0))
+            print(f"{mod}: kept {kept}, added {added}, removed {removed}")
 
     if verbose:
         print("smoothing complete")
@@ -790,17 +773,15 @@ def smooth_annotations_enhanced(
 
 # %%
 # 测试
-smooth_annotations_enhanced(
+smooth_annotations_enhanced_2(
     adata,
     ggm_key='ggm',
-    modules_used=None,            # 或 ['M1','M2','M3']
+    modules_used=None,     
     modules_excluded=None,
     embedding_key='spatial',
     k_neighbors=24,               # 默认24邻居
-    min_annotated_neighbors=1,    # 保留时至少累积权重和≥1
-    min_neighbors_to_add=3,       # 补全时至少累积权重和≥3
-    neighbor_ratio_add=0.75,      # 补全时邻居 ≥75% 为阳性
-    self_weight_min=0.6,          # 补全时自身权重 ≥0.6
+    min_annotated_neighbors=4,    # 保留时至少累积权重和≥1
+    min_neighbors_to_add=12,       # 补全时至少累积权重和≥3
     verbose=True
 )
 
@@ -808,9 +789,10 @@ smooth_annotations_enhanced(
 # %%
 # 可视化
 for module in adata.uns['module_stats']['module_id']:
-    sc.pl.spatial(adata, size=1.6, alpha_img=0.5, frameon = False, color_map="Reds",ncols=3, 
+    sc.pl.spatial(adata, size=1.6, alpha_img=0.5, frameon = False, color_map="Reds",ncols=4, 
                   color=[f"{module}_exp",f"{module}_anno",f"{module}_anno_smooth",
-                         f"{module}_anno_smooth_advanced",f"{module}_anno_smooth_optimized", f"{module}_anno_smooth_enhanced"],
+                         f"{module}_anno_smooth_advanced",f"{module}_anno_smooth_optimized", 
+                         f"{module}_anno_smooth_enhanced",f"{module}_anno_smooth_enhanced_2"],
                   show=True)
 
 
