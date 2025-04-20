@@ -262,7 +262,7 @@ sg.integrate_annotations(
     #modules_used=module_used,
     #modules_excluded=['M15', 'M18'],        
     #modules_preferred=['M28', 'M38'],
-    result_anno='annotation_new',
+    result_anno='annotation_new_all',
     k_neighbors=24,
     lambda_pair=0.3,
     purity_adjustment=False,
@@ -280,7 +280,7 @@ print(f"Time: {time.time() - start_time:.5f} s")
 
 # %%
 sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation_new_all", show=True,
-              save="/MOSTA_E16_5_E1S1_ggm_modules_annotation_new.pdf")
+              save="/MOSTA_E16_5_E1S1_ggm_modules_annotation_new_all.pdf")
 
 
 

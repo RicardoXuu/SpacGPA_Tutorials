@@ -84,7 +84,17 @@ print(ggm.modules_summary.shape)
 sg.annotate_with_ggm(adata, ggm,
                      ggm_key='ggm',
                      k_neighbors_for_smooth=18,
-                     min_add_neighbors='none')
+                     #min_add_neighbors='none',
+                     )
+
+# %%
+sg.calculate_module_expression(adata, ggm,
+                               ggm_key='ggm')
+sg.calculate_gmm_annotations(adata,
+                             ggm_key='ggm')
+
+
+
 
 # %%
 #使用leiden聚类和louvain聚类基于模块表达矩阵归一化矩阵进行聚类

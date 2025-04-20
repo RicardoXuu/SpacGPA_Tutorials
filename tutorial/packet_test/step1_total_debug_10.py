@@ -75,8 +75,33 @@ sg.annotate_with_ggm(adata, ggm,
 # %%
 sg.smooth_annotations(adata,
                       ggm_key='ggm',
-                      k_neighbors=24)
+                      k_neighbors=18)
 
+
+
+
+# %%
+pdf_file = "figures/visium/CytAssist_FreshFrozen_Mouse_Brain_Rep2_smooth.pdf"
+c = canvas.Canvas(pdf_file, pagesize=letter)
+image_files = []
+for module in adata.uns['module_stats']['module_id']:
+    plt.figure()    
+    sc.pl.spatial(adata, size=1.6, alpha_img=0.5, frameon = False, color_map="Reds", ncols=4, 
+                  color=[f"{module}_exp", f"{module}_exp_trim", f"{module}_anno", f"{module}_anno_smooth"],
+                  show=False)
+    show_png_file = f"figures/visium/CytAssist_FreshFrozen_Mouse_Brain_Rep2_smooth_{module}.png"
+    plt.savefig(show_png_file, format="png", dpi=300, bbox_inches="tight")
+    plt.close()
+    image_files.append(show_png_file)
+
+for image_file in image_files:
+    img = Image.open(image_file)
+    c.setPageSize((img.width, img.height))
+    c.drawImage(image_file, 0, 0, width=img.width, height=img.height)
+    c.showPage()
+
+c.save()
+# %%
 
 # %%
 # 方案1
