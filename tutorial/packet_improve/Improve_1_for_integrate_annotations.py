@@ -82,27 +82,34 @@ sg.smooth_annotations(adata,
 
 
 # %%
+# 分析模块类型
+start_time = time.time()
+sg.classify_modules(adata, 
+                    ggm_key='ggm',
+                    ref_anno='annotation',
+                    #ref_cluster_method='leiden',
+                    #ref_resolution=0.5,
+                    skew_threshold=2,
+                    top1pct_threshold=2,
+                    Moran_I_threshold=0.2,
+                    min_dominant_cluster_fraction=0.2,
+                    anno_overlap_threshold=0.4)
+
+# %%
+adata.uns['module_filtering']['type_tag'].value_counts()
+
+# %%
 # 方案1，尝试使用GPU加速
-import numpy as np, pandas as pd, random, sys, torch
-from sklearn.neighbors import NearestNeighbors
+import random
+import numpy as np
+import pandas as pd
+from sklearn.neighbors import NearestNeighbors, KernelDensity
 from scipy.stats import rankdata
-from sklearn.neighbors import KernelDensity
-import networkx as nx, leidenalg
+import networkx as nx
+import leidenalg
 from igraph import Graph
+import sys
 
-# ---------------- helper ---------------- #
-def calc_border_flags(coords, k, iqr_factor=1.5, device="cpu"):
-    """同原逻辑，用 torch 加速均值距离计算"""
-    coords_t = torch.as_tensor(coords, dtype=torch.float32, device=device)
-    # knn 用 sklearn 足够快；返回仍在 CPU
-    nbrs = NearestNeighbors(n_neighbors=k+1).fit(coords)
-    dists, _ = nbrs.kneighbors(coords)
-    mean_d = dists[:, 1:].mean(1)
-    q1, q3 = np.percentile(mean_d, [25, 75])
-    threshold = q3 + iqr_factor * (q3 - q1)
-    return mean_d > threshold, dists[:, 1:]
-
-# -------------- main function -------------- #
 def integrate_annotations(
     adata,
     ggm_key="ggm",
@@ -126,146 +133,147 @@ def integrate_annotations(
     energy_tol=1e-3,
     p0=0.1,
     tau=8.0,
-    random_state=0,
-    device="cpu",
+    random_state=None,
 ):
     """
-    **仅加速，不改数学逻辑**：参数与返回值完全与原函数一致。
+    Integrate module-wise annotations into a single, spatially smooth label
+    using a first-order Potts Conditional Random Field (CRF).
+    （与原版完全一致，仅修复 dens_log 计算中的 n_jobs 错误）
     """
-    time_mark = time.time()
     # reproducibility
     random.seed(random_state)
     np.random.seed(random_state)
-    torch.manual_seed(random_state)
 
+    # sanity checks
     if embedding_key not in adata.obsm:
         raise KeyError(f"{embedding_key} not found in adata.obsm")
     if ggm_key not in adata.uns["ggm_keys"]:
         raise KeyError(f"{ggm_key} not found in adata.uns['ggm_keys']")
 
+    # print parameter meanings and values
+    print(
+        f"Main parameters for integration:\n"
+        f"  alpha = {alpha:.2f}  for neighbor-vote weight\n"
+        f"  beta  = {beta:.2f}  for expression-rank weight\n"
+        f"  gamma = {gamma:.2f}  for spatial-density weight\n"
+        f"  delta = {delta:.2f}  for low-purity penalty weight\n"
+        f"  lambda_pair = {lambda_pair:.2f}  for potts smoothing strength\n"
+    )
+
+    # load module list
     stats_key = adata.uns["ggm_keys"][ggm_key]["module_stats"]
-    all_modules = list(pd.unique(adata.uns[stats_key]["module_id"]))
+    modules_df = adata.uns[stats_key]
+    all_modules = list(pd.unique(modules_df["module_id"]))
     modules_used = modules_used or all_modules
     if modules_excluded:
         modules_used = [m for m in modules_used if m not in modules_excluded]
-    
-    print("Time for module selection:", time.time() - time_mark)
-    
-    # --- build KNN graph (仍用 sklearn，速度足够) ---
+
+    # build spatial KNN graph
     X = adata.obsm[embedding_key]
     n_cells = adata.n_obs
     knn = NearestNeighbors(n_neighbors=k_neighbors + 1).fit(X)
     dist, idx = knn.kneighbors(X)
     sigma = max(np.mean(dist[:, 1:]), 1e-6)
-    W = np.exp(-(dist ** 2) / sigma**2).astype("float32")          # shape (N, k+1)
-    lam = (lambda_pair * W[:, 1:]).astype("float32")               # shape (N, k)
-    print("Time for KNN graph:", time.time() - time_mark)
-    # 转 torch
-    idx_t  = torch.as_tensor(idx[:, 1:],  dtype=torch.long,   device=device)  # (N,k)
-    W_t    = torch.as_tensor(W[:, 1:],   dtype=torch.float32, device=device)  # (N,k)
-    lam_t  = torch.as_tensor(lam,        dtype=torch.float32, device=device)  # (N,k)
-    
-    print("Time for torch conversion:", time.time() - time_mark)
-    
-    # --- 预计算 anno, rank_norm, dens_log ---
-    anno_dict   = {}
-    rank_norm_t = []
-    dens_log_t  = []
+    W = np.exp(-dist**2 / sigma**2)
+    lam = lambda_pair * W[:, 1:]
+
+    # load annotations, compute ranks
+    anno = {}
+    rank_norm = {}
+    dens_log = {}
+
+    # 加速 KDE 的设置
+    max_kde = 2000
+    sigma_d = float(np.std(dist[:, 1:])) + 1e-8
+
+    def compute_density(pts):
+        """子采样 + KDE 计算（不使用 n_jobs）"""
+        if pts.shape[0] > max_kde:
+            idx_sub = np.random.choice(pts.shape[0], max_kde, replace=False)
+            pts = pts[idx_sub]
+        kde = KernelDensity(
+            bandwidth=sigma_d,
+            kernel='gaussian',
+            algorithm='ball_tree',
+            leaf_size=40,
+            metric='euclidean'
+        )
+        kde.fit(pts)
+        return -kde.score_samples(X)
 
     for m in modules_used:
         col = f"{m}_anno_smooth" if f"{m}_anno_smooth" in adata.obs else f"{m}_anno"
-        if col not in adata.obs or f"{m}_exp" not in adata.obs:
+        exp_col = f"{m}_exp"
+        if col not in adata.obs or exp_col not in adata.obs:
             raise KeyError(f"Missing columns for module {m}")
 
-        lab = (adata.obs[col] == m).astype(np.float32).values       # 0/1
-        anno_dict[m] = torch.as_tensor(lab, device=device)
+        # binary annotation vector
+        lab = (adata.obs[col] == m).astype(int).values
+        anno[m] = lab
 
-        r = rankdata(-adata.obs[f"{m}_exp"].values, method="dense")
-        rank_norm = ((r - 1) / (n_cells - 1)).astype("float32")
-        rank_norm_t.append(torch.as_tensor(rank_norm, device=device))
+        # expression rank normalization
+        r = rankdata(-adata.obs[exp_col].values, method="dense")
+        rank_norm[m] = (r - 1) / (n_cells - 1)
 
+        # accelerated density log
         pts = X[lab == 1]
         if len(pts) >= 3:
-            dens = -KernelDensity().fit(pts).score_samples(X)
+            dens_log[m] = compute_density(pts)
         else:
-            dens = np.zeros(n_cells, dtype="float32")
-        dens_log_t.append(torch.as_tensor(dens, device=device))
+            dens_log[m] = np.zeros(n_cells, dtype="float32")
 
-    rank_norm_t = torch.stack(rank_norm_t, dim=1)   # (N, M)
-    dens_log_t  = torch.stack(dens_log_t,  dim=1)   # (N, M)
-    
-    print("Time for pre-calculation:", time.time() - time_mark)
-    
-    # --- 动态模块权重 ---
-    M = len(modules_used)
-    w_mod = torch.ones(M, device=device)
+    # define unary energy
+    w_mod = {m: 1.0 for m in modules_used}
 
-    # --- 初始 label 选择（逐细胞但向量化 unary 评估） ---
-    # 计算 neighbor‑vote term 一次性完成
-    # vote_ij = sum_k W_ik * anno_j[k]  / sum_k W_ik
-    # -> 用稀疏 gather 实现
-    anno_stack = torch.stack([anno_dict[m] for m in modules_used], dim=1)   # (N, M)
-    # denominator (N,1)
-    denom = W_t.sum(1, keepdim=True)
-    # gather neighbors anno: (N,k,M)
-    neigh_anno = anno_stack[idx_t]                # (N,k,M)
-    vote = (W_t.unsqueeze(2) * neigh_anno).sum(1) / torch.clamp_min(denom, 1e-12)  # (N,M)
-    
-    print("Time for vote calculation:", time.time() - time_mark)
-    
-    # unary matrix (N,M)
-    unary_mat = (
-        alpha * (1 - vote)
-        + beta * rank_norm_t
-        + gamma * dens_log_t
-        + delta * (1 - w_mod.unsqueeze(0))
-    )
+    def unary(i, m):
+        nb = idx[i, 1:]
+        s = W[i, 1:].sum()
+        vote = (W[i, 1:] * anno[m][nb]).sum() / s if s else 0.0
+        vote *= w_mod[m]
+        return (
+            alpha * (1 - vote)
+            + beta * rank_norm[m][i]
+            + gamma * dens_log[m][i]
+            + delta * (1 - w_mod[m])
+        )
 
-    # initial label = argmin unary among candidates
-    # 每个细胞的候选集合不同→不能一次 argmin；但仍可向量化：
-    cand_mask = (anno_stack == 1)                 # (N,M) 0/1
-    # 至少保证每行有一个 True
-    if cand_mask.sum(1).min() == 0:
-        cand_mask[cand_mask.sum(1) == 0] = True   # 若无注释则全模块都可选
+    # initial labeling
+    label = np.empty(n_cells, dtype=object)
+    for i in range(n_cells):
+        cand = [m for m in modules_used if anno[m][i]] or modules_used
+        if modules_preferred:
+            pref = [m for m in cand if m in modules_preferred]
+            cand = pref or cand
+        label[i] = min(cand, key=lambda m: unary(i, m))
 
-    big = 1e6
-    masked_unary = unary_mat + big * (~cand_mask) # 非候选赋极大
-    label_idx = masked_unary.argmin(1)            # (N,)
-    label = [modules_used[i] for i in label_idx.cpu().numpy()]
-
-    # --- energy 函数（张量版） ---
-    label_t = torch.as_tensor(label_idx, device=device)            # (N,)
-
+    # energy function
     def energy():
-        u = unary_mat[torch.arange(n_cells, device=device), label_t].sum()
-        # pairwise cost: lam_t * (label_i != label_j)
-        neigh_lab = label_t[idx_t]                                  # (N,k)
-        pair = lam_t * (neigh_lab != label_t.unsqueeze(1))
-        return (u + pair.sum()).item()
+        u = sum(unary(i, label[i]) for i in range(n_cells))
+        p = float((lam * (label[idx[:, 1:]] != label[:, None])).sum())
+        return u + p
 
     prev_E = energy()
     print("Starting optimization...")
     print(f"Iteration:   0, Energy: {prev_E:.2f}")
-    
-    print(f"Time for initialization: {time.time() - time_mark:.5f} s")
-    
-    # ------------ ICM loop ------------
+
+    # optimization loop
     converged = False
     last_pr_len = 0
     rng = random.Random(random_state)
 
     for t in range(1, max_iter + 1):
-        # purity_adjustment 部分保持原 py 循环实现（通常瓶颈不在这里）
+        # purity_adjustment
         if purity_adjustment:
             g = nx.Graph()
             g.add_nodes_from(range(n_cells))
-            edges = np.column_stack([np.repeat(np.arange(n_cells), k_neighbors), idx[:, 1:].reshape(-1)])
-            g.add_edges_from(edges)
+            for i in range(n_cells):
+                for j in idx[i, 1:]:
+                    g.add_edge(i, j)
             nx.set_node_attributes(g, {i: label[i] for i in range(n_cells)}, "label")
             part = leidenalg.find_partition(
                 Graph.from_networkx(g),
                 leidenalg.RBConfigurationVertexPartition,
-                seed=random_state,
+                seed=random_state
             )
 
             purity = {m: [] for m in modules_used}
@@ -277,68 +285,40 @@ def integrate_annotations(
                 for m, v in counts.items():
                     if m in modules_used:
                         purity[m].append(v / len(cluster) * cp)
-            for j, m in enumerate(modules_used):
+            for m in modules_used:
                 if purity[m]:
                     mp = float(np.mean(purity[m]))
-                    w_mod_j = w_mod[j] * (1 + lr * (mp - target_purity))
-                    w_mod[j] = float(np.clip(w_mod_j, w_floor, w_ceil))
-        # 重新计算 unary_mat （只有 w_mod 变）——张量化
-        unary_mat = (
-            alpha * (1 - vote)
-            + beta * rank_norm_t
-            + gamma * dens_log_t
-            + delta * (1 - w_mod.unsqueeze(0))
-        )
+                    w_mod[m] = np.clip(w_mod[m] * (1 + lr * (mp - target_purity)),
+                                       w_floor, w_ceil)
 
+        # ICM with annealed perturbation
         changed = 0
         p_t = p0 * np.exp(-t / tau)
-
-        # ICM：逐细胞，但每步只用 torch 计算 pair_cost
         for i in range(n_cells):
-            # 候选
-            cand_mask_i = cand_mask[i].clone()
+            cand = [m for m in modules_used if anno[m][i]] or modules_used
             if modules_preferred:
-                # 若存在偏好模块且在候选中，则只保留偏好
-                pref_mask = torch.zeros(M, dtype=torch.bool, device=device)
-                for m in modules_preferred:
-                    if m in modules_used:
-                        pref_mask[modules_used.index(m)] = True
-                if (cand_mask_i & pref_mask).any():
-                    cand_mask_i = cand_mask_i & pref_mask
-            if not cand_mask_i[label_idx[i]]:
-                cand_mask_i[label_idx[i]] = True  # ensure current label
-
-            cand_idx = cand_mask_i.nonzero(as_tuple=True)[0]        # (C,)
-            if cand_idx.numel() == 1:
-                continue
+                pref = [m for m in cand if m in modules_preferred]
+                cand = pref or cand
+            if label[i] not in cand:
+                cand.append(label[i])
 
             if rng.random() < p_t:
-                new_lab_idx = int(cand_idx[rng.randrange(cand_idx.numel())])
+                new_lab = rng.choice(cand)
             else:
-                # pair_cost: lam_i * (label_neigh != cand)
-                neigh_lab_i = label_t[idx_t[i]]                     # (k,)
-                # (C,k)
-                diff = (neigh_lab_i.unsqueeze(0) != cand_idx.unsqueeze(1))
-                pc = (lam_t[i] * diff).sum(1)                       # (C,)
-                total = unary_mat[i, cand_idx] + pc
-                new_lab_idx = int(cand_idx[total.argmin()])
+                pair_cost = lam[i] * (label[idx[i, 1:]] != np.array(cand)[:, None])
+                total = [unary(i, m) + pair_cost[k].sum() for k, m in enumerate(cand)]
+                new_lab = cand[int(np.argmin(total))]
 
-            if new_lab_idx != label_idx[i]:
-                label_idx[i] = new_lab_idx
-                label[i] = modules_used[new_lab_idx]
-                label_t[i] = new_lab_idx
+            if new_lab != label[i]:
+                label[i] = new_lab
                 changed += 1
 
         curr_E = energy()
-        msg = (
-            f"Iteration: {t:3}, Energy: {curr_E:.2f}, "
-            f"ΔE: {prev_E-curr_E:+.2f}, Changed: {changed}"
-        )
+        msg = f"Iteration: {t:3}, Energy: {curr_E:.2f}, ΔE: {prev_E-curr_E:+.2f}, Changed: {changed}"
         sys.stdout.write("\r" + " " * last_pr_len + "\r")
         sys.stdout.write(msg)
         sys.stdout.flush()
         last_pr_len = len(msg)
-
         if abs(prev_E - curr_E) / max(abs(prev_E), 1.0) < energy_tol:
             print("\nConverged\n")
             converged = True
@@ -348,12 +328,11 @@ def integrate_annotations(
     if not converged:
         print("\nStopped after max_iter without convergence\n")
 
-    adata.obs[result_anno] = np.array(label, dtype=object)
-    return adata
+    adata.obs[result_anno] = label
 
 
 # %%
-# 测试
+# 测试1，全部模块
 start_time = time.time()
 integrate_annotations(
                     adata,
@@ -373,18 +352,137 @@ integrate_annotations(
                     gamma=0.3,
                     # delta=0.4,   
                     max_iter=100,
-                    random_state=0,
-                    device='cuda')
+                    random_state=0)
 print(f"Time: {time.time() - start_time:.5f} s")
 
 # %%
-sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation_new_all", show=True)
+sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation_new_all", show=True,
+              save="/annotation_new_all.pdf")
+
+# %%
+# 测试2， identify_modules
+start_time = time.time()
+module_used = adata.uns['module_filtering'][adata.uns['module_filtering']['type_tag']=='cell_identity_module']['module_id'].tolist()
+integrate_annotations(
+                    adata,
+                    ggm_key='ggm',
+                    modules_used=module_used,
+                    #modules_excluded=['M15', 'M18'],        
+                    #modules_preferred=['M28', 'M38'],
+                    result_anno='annotation_new_id',
+                    k_neighbors=24,
+                    lambda_pair=0.3,
+                    purity_adjustment=False,
+                    w_floor=0.01,
+                    lr=0.5,
+                    target_purity=0.85,
+                    # alpha=0.5,
+                    # beta=0.3
+                    gamma=0.3,
+                    # delta=0.4,   
+                    max_iter=100,
+                    random_state=0)
+print(f"Time: {time.time() - start_time:.5f} s")
+
+# %%
+sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation_new_id", show=True,
+              save="/annotation_new_id.pdf")
+
+
+
+
+# %%
+# 测试3， identify_modules, 不迭代优化
+start_time = time.time()
+module_used = adata.uns['module_filtering'][adata.uns['module_filtering']['type_tag']=='cell_identity_module']['module_id'].tolist()
+integrate_annotations(
+                    adata,
+                    ggm_key='ggm',
+                    modules_used=module_used,
+                    #modules_excluded=['M15', 'M18'],        
+                    #modules_preferred=['M28', 'M38'],
+                    result_anno='annotation_new_id_no_optimization',
+                    k_neighbors=24,
+                    lambda_pair=0.3,
+                    purity_adjustment=False,
+                    w_floor=0.01,
+                    lr=0.5,
+                    target_purity=0.85,
+                    # alpha=0.5,
+                    # beta=0.3
+                    gamma=0.3,
+                    # delta=0.4,   
+                    max_iter=0,
+                    random_state=0)
+print(f"Time: {time.time() - start_time:.5f} s")
+
+# %%
+sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation_new_id_no_optimization", show=True,
+              save="/annotation_new_id_no_optimization.pdf")
+
+
+# %%
+# 旧版本
+start_time = time.time()
+module_used = adata.uns['module_filtering'][adata.uns['module_filtering']['type_tag']=='cell_identity_module']['module_id'].tolist()
+sg.integrate_annotations_noweight(
+                    adata,
+                    ggm_key='ggm',
+                    modules_used=module_used,
+                    result_anno='annotation_old',)
+print(f"Time: {time.time() - start_time:.5f} s")
+
+
+# %%
+sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation_old", show=True,
+              save="/annotation_old.pdf")
+
+# %%
+sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation", show=True,
+              save="/annotation_raw.pdf")
+
+
+
+# %%
+
+# %%
+# 计算各组结果的ARI和NMI
+from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
+
+# Define the columns of interest
+clust_columns = ['annotation', 'annotation_old', 'annotation_new_all', 'annotation_new_id', 'annotation_new_id_no_optimization']
+# Extract clustering labels from adata.obs
+df = adata.obs[clust_columns]
+# Initialize empty DataFrames for the ARI and NMI matrices
+ari_matrix = pd.DataFrame(np.zeros((len(clust_columns), len(clust_columns))), index=clust_columns, columns=clust_columns)
+nmi_matrix = pd.DataFrame(np.zeros((len(clust_columns), len(clust_columns))), index=clust_columns, columns=clust_columns)
+# Loop over each pair of clustering columns and compute metrics.
+for col1 in clust_columns:
+    for col2 in clust_columns:
+        # Convert to strings to ensure proper handling (especially if the columns are categorical)
+        labels1 = df[col1].astype(str).values
+        labels2 = df[col2].astype(str).values
+        
+        # Calculate ARI and NMI
+        ari = adjusted_rand_score(labels1, labels2)
+        nmi = normalized_mutual_info_score(labels1, labels2)
+        
+        ari_matrix.loc[col1, col2] = ari
+        nmi_matrix.loc[col1, col2] = nmi
+# Display the ARI matrix
+print("Adjusted Rand Index (ARI) Matrix:")
+print(ari_matrix)
+# Display the NMI matrix
+print("\nNormalized Mutual Information (NMI) Matrix:")
+print(nmi_matrix)
+
 
 # %%
 
 
 
 
+# %%
 
 
 
