@@ -163,6 +163,7 @@ def calculate_module_expression(adata,
     if ggm_key == 'ggm':
         mod_info_key = 'module_info'
         mod_stats_key = 'module_stats'
+        mod_color_key = 'module_colors'
         mod_filtering_key = 'module_filtering'
         expr_key = 'module_expression'
         expr_scaled_key = 'module_expression_scaled'
@@ -170,6 +171,7 @@ def calculate_module_expression(adata,
     else:
         mod_info_key = f"{ggm_key}_module_info"
         mod_stats_key = f"{ggm_key}_module_stats"
+        mod_color_key = f"{ggm_key}_module_colors"
         mod_filtering_key = f"{ggm_key}_module_filtering"
         expr_key = f"{ggm_key}_module_expression"
         expr_scaled_key = f"{ggm_key}_module_expression_scaled"
@@ -299,6 +301,7 @@ def calculate_module_expression(adata,
     adata.uns['ggm_keys'][ggm_key] = {
         'module_info': mod_info_key,
         'module_stats': mod_stats_key,
+        'module_colors': mod_color_key,
         'module_filtering': mod_filtering_key,
         'module_expression': expr_key,
         'module_expression_scaled': expr_scaled_key,
@@ -655,13 +658,18 @@ def calculate_gmm_annotations(adata,
     adata.obs = pd.concat([adata.obs, annotations], axis=1)
     
     # Add trimmed expression columns which are 0 if the annotation is None for this module
+    trim_dict = {}
     for mod in valid_modules:
         exp_col = f"{mod}_exp"
         anno_col = f"{mod}_anno"
         trim_col = f"{mod}_exp_trim"
-        if exp_col in adata.obs.columns and anno_col in adata.obs.columns:
+        if exp_col in adata.obs and anno_col in adata.obs:
             mask = (adata.obs[anno_col] == mod).astype(int)
-            adata.obs[trim_col] = adata.obs[exp_col] * mask
+            trim_dict[trim_col] = adata.obs[exp_col] * mask
+
+    if trim_dict:
+        trim_df = pd.DataFrame(trim_dict, index=adata.obs.index)
+        adata.obs = pd.concat([adata.obs, trim_df], axis=1)
 
     # Add GO annotations to module_stats_key 
     stats_records_df = pd.DataFrame(stats_records)
@@ -783,6 +791,9 @@ def smooth_annotations(
         if add_thresh < 1:
             raise ValueError("min_add_neighbors must be >=1 when integer")
 
+    # Prepare a dict to collect all smoothed annotation series
+    smooth_dict = {}
+
     # Process each module
     for mod in mods:
         anno_col = f"{mod}_anno"
@@ -828,13 +839,18 @@ def smooth_annotations(
                 if cnt >= add_thresh:
                     b2[i] = 1
 
-        # Write smoothed annotation
+        # store the result in smooth_dict for batch concatenation later.
         out_col = f"{mod}_anno_smooth"
-        adata.obs[out_col] = pd.Categorical(np.where(b2, mod, None))
+        smooth_dict[out_col] = pd.Categorical(np.where(b2, mod, None))
 
         if verbose:
             after = b2.sum()
             print(f"{mod} processed. remain cells: {after}")
+
+    # Once all modules are processed, concatenate all smoothed columns at once
+    if smooth_dict:
+        smooth_df = pd.DataFrame(smooth_dict, index=adata.obs.index)
+        adata.obs = pd.concat([adata.obs, smooth_df], axis=1)
 
     if verbose:
         print("\nAnnotation smoothing completed. Results stored in adata.obs.\n")

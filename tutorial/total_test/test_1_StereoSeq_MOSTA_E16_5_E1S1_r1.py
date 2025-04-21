@@ -32,8 +32,13 @@ adata = sc.read_h5ad("/dta/ypxu/ST_GGM/VS_Code/ST_GGM_dev_1/data/MOSTA/E16.5_E1S
 adata.var_names_make_unique()
 print(adata.X.shape)
 
-sc.pp.filter_cells(adata, min_genes=1000)
-print(adata.X.shape)
+adata.X = adata.layers['count']
+
+sc.pp.normalize_total(adata, target_sum=1e4)
+sc.pp.log1p(adata)
+
+#sc.pp.filter_cells(adata, min_genes=1000)
+#print(adata.X.shape)
 
 sc.pp.filter_genes(adata, min_cells=10)
 print(adata.X.shape)
@@ -56,7 +61,7 @@ print(ggm.SigEdges)
 
 # %%
 # 调整Pcor阈值
-ggm.adjust_cutoff(pcor_threshold=0.03)
+ggm.adjust_cutoff(pcor_threshold=0.02)
 
 # %%
 # 使用改进的mcl聚类识别共表达模块

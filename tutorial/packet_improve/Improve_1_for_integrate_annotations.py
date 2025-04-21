@@ -39,6 +39,12 @@ adata = sc.read_h5ad("/dta/ypxu/ST_GGM/VS_Code/ST_GGM_dev_1/data/MOSTA/E16.5_E1S
 adata.var_names_make_unique()
 print(adata.X.shape)
 
+adata.X = adata.layers['count']
+
+sc.pp.normalize_total(adata, target_sum=1e4)
+sc.pp.log1p(adata)
+print(adata.X.shape)
+
 # %%
 # 计算模块的加权表达值
 start_time = time.time()
@@ -97,6 +103,179 @@ sg.classify_modules(adata,
 
 # %%
 adata.uns['module_filtering']['type_tag'].value_counts()
+
+# %%
+# 设置配色方案
+import scanpy as sc
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+from matplotlib import colors as mcolors
+from scanpy.plotting.palettes import default_20, vega_10, vega_20
+
+def assign_module_colors(adata, ggm_key='ggm', seed=1):
+    """
+    Generate and store a consistent color palette for modules based on the number of modules,
+    using Scanpy/Squidpy‐style discrete palettes for ≤100 modules and XKCD names for >100 modules,
+    with optional random shuffling controlled by `seed`.
+
+    The palette is automatically selected based on module count:
+      - ≤10    modules: vega_10
+      - ≤20    modules: default_20
+      - ≤40    modules: vega_20
+      - ≤60    modules: default_20 + vega_10 + first 8 of tab20b
+      - ≤100   modules: merged [default_20, vega_20, tab20b, tab20c, Set3, Pastel2]
+      - >100   modules: use matplotlib’s XKCD_COLORS, filtered, sorted by HSV, then sampled
+
+    If seed != 0, sampling and final order are shuffled reproducibly; if seed == 0, the order is deterministic.
+
+    Parameters:
+      adata: AnnData object containing module statistics in adata.uns['ggm_keys'][ggm_key]['module_stats'].
+      ggm_key: str, key for the GGM metadata in adata.uns.
+      seed: int, random seed (0 = no shuffle; otherwise reproducible sampling + shuffle).
+
+    Returns:
+      dict mapping module IDs to color names or hex codes.
+    """
+    # ——前置检查——
+    ggm_meta = adata.uns.get('ggm_keys', {}).get(ggm_key)
+    if ggm_meta is None:
+        raise ValueError(f"{ggm_key} not found in adata.uns['ggm_keys']")
+    mod_stats_key = ggm_meta.get('module_stats')
+    mod_col_val   = ggm_meta.get('module_colors')
+
+    module_stats = adata.uns.get(mod_stats_key)
+    if module_stats is None:
+        raise ValueError(f"Module statistics not found in adata.uns['{mod_stats_key}']")
+    df = module_stats if isinstance(module_stats, pd.DataFrame) else pd.DataFrame(module_stats)
+    module_ids = df['module_id'].tolist()
+
+    n_all = len(module_ids)
+    if n_all == 0:
+        return {}
+    n_modules = min(n_all, 806)
+
+    # 初始化 RNG（seed=0 不使用）
+    rng = np.random.RandomState(seed) if seed != 0 else None
+
+    # ——选择配色方案——
+    if n_modules <= 10:
+        colors = vega_10[:n_modules]
+    elif n_modules <= 20:
+        colors = default_20[:n_modules]
+    elif n_modules <= 40:
+        colors = vega_20[:n_modules]
+    elif n_modules <= 60:
+        tab20b = [mpl.colors.to_hex(c) for c in plt.get_cmap('tab20b').colors[:8]]
+        combo = default_20 + vega_10 + tab20b
+        colors = combo[:n_modules]
+    elif n_modules <= 100:
+        tab20b  = [mpl.colors.to_hex(c) for c in plt.get_cmap('tab20b').colors]
+        tab20c  = [mpl.colors.to_hex(c) for c in plt.get_cmap('tab20c').colors]
+        set3    = [mpl.colors.to_hex(c) for c in plt.get_cmap('Set3').colors]
+        pastel2 = [mpl.colors.to_hex(c) for c in plt.get_cmap('Pastel2').colors]
+        palette_combo = default_20 + vega_20 + tab20b + tab20c + set3 + pastel2
+        colors = palette_combo[:n_modules]
+    else:
+        # >100 modules: use XKCD_COLORS filtered & HSV-sampled
+        xkcd_colors = mcolors.XKCD_COLORS
+        to_remove = ['gray','grey','black','white','light',
+                     'lawngreen','silver','gainsboro','snow',
+                     'mintcream','ivory','fuchsia','cyan']
+        filtered = {
+            name: col for name, col in xkcd_colors.items()
+            if not any(key in name for key in to_remove)
+        }
+        # sort by HSV using tuples
+        sorted_hsv = sorted(
+            ((tuple(mcolors.rgb_to_hsv(mcolors.to_rgba(col)[:3])), name))
+            for name, col in filtered.items()
+        )
+        sorted_names = [name for hsv, name in sorted_hsv]
+        if rng is not None:
+            # random sampling without replacement if possible
+            if len(sorted_names) >= n_modules:
+                colors = list(rng.choice(sorted_names, size=n_modules, replace=False))
+            else:
+                base = sorted_names.copy()
+                rem = n_modules - len(base)
+                vir = plt.cm.viridis
+                extra = [mpl.colors.to_hex(vir(i/(rem-1))) for i in range(rem)]
+                colors = base + extra
+        else:
+            # uniformly spaced sampling along sorted list
+            L = len(sorted_names)
+            step = L / n_modules
+            colors = [sorted_names[int(i * step)] for i in range(n_modules)]
+
+    # ——处理超过806的额外模块——
+    if n_all > 806:
+        extra_count = n_all - 806
+        if rng is not None:
+            extra = list(rng.choice(colors, size=extra_count, replace=True))
+        else:
+            extra = [colors[i % len(colors)] for i in range(extra_count)]
+        colors += extra
+
+    # ——全局打乱——
+    if rng is not None:
+        perm = rng.permutation(len(colors))
+        colors = [colors[i] for i in perm]
+
+    # ——构建映射并存入 adata.uns——
+    color_dict = {module_ids[i]: colors[i] for i in range(n_all)}
+    if isinstance(mod_col_val, str):
+        adata.uns.setdefault(mod_col_val, {}).update(color_dict)
+    else:
+        raise ValueError(f"Invalid module color value in adata.uns['{mod_col_val}']: {mod_col_val}")
+
+
+# %%
+# 生成配色方案
+assign_module_colors(adata, ggm_key='ggm', seed=1)  
+
+# %%
+# 原始注释
+sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation", show=True,
+              save="/annotation_raw.pdf")
+
+# %%
+# 旧版本
+start_time = time.time()
+module_used = adata.uns['module_filtering'][adata.uns['module_filtering']['type_tag']=='cell_identity_module']['module_id'].tolist()
+sg.integrate_annotations_noweight(
+                    adata,
+                    ggm_key='ggm',
+                    result_anno='annotation_old_all',)
+sg.integrate_annotations_noweight(
+                    adata,
+                    ggm_key='ggm',
+                    result_anno='annotation_old_all_no_neighbor',
+                    neighbor_similarity_ratio=0)
+sg.integrate_annotations_noweight(
+                    adata,
+                    ggm_key='ggm',
+                    modules_used=module_used,
+                    result_anno='annotation_old_id',)
+sg.integrate_annotations_noweight(
+                    adata,
+                    ggm_key='ggm',
+                    modules_used=module_used,
+                    result_anno='annotation_old_id_no_neighbor',
+                    neighbor_similarity_ratio=0)
+print(f"Time: {time.time() - start_time:.5f} s")
+
+
+# %%
+sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, show=True, palette=adata.uns['module_colors'],
+              color="annotation_old_all", save="/annotation_old.pdf")
+sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, show=True, palette=adata.uns['module_colors'],
+              color="annotation_old_all_no_neighbor", save="/annotation_old_no_neighbor.pdf")
+sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, show=True, palette=adata.uns['module_colors'],
+              color="annotation_old_id", save="/annotation_old_id.pdf")
+sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, show=True, palette=adata.uns['module_colors'],
+              color="annotation_old_id_no_neighbor", save="/annotation_old_id_no_neighbor.pdf")
 
 # %%
 # 方案1，加速 KDE 计算，整体计算逻辑依然较慢
@@ -356,8 +535,8 @@ integrate_annotations(
 print(f"Time: {time.time() - start_time:.5f} s")
 
 # %%
-sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation_new_all", show=True,
-              save="/annotation_new_all.pdf")
+sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, show=True, palette=adata.uns['module_colors'],
+              color="annotation_new_all", save="/annotation_new_all.pdf")
 
 # %%
 # 测试2， identify_modules
@@ -385,8 +564,8 @@ integrate_annotations(
 print(f"Time: {time.time() - start_time:.5f} s")
 
 # %%
-sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation_new_id", show=True,
-              save="/annotation_new_id.pdf")
+sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, show=True, palette=adata.uns['module_colors'], 
+              color="annotation_new_id", save="/annotation_new_id.pdf")
 
 
 
@@ -417,44 +596,18 @@ integrate_annotations(
 print(f"Time: {time.time() - start_time:.5f} s")
 
 # %%
-sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation_new_id_no_optimization", show=True,
-              save="/annotation_new_id_no_optimization.pdf")
+sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, show=True, palette=adata.uns['module_colors'],
+              color="annotation_new_id_no_optimization", save="/annotation_new_id_no_optimization.pdf")
 
 
-# %%
-# 旧版本
-start_time = time.time()
-module_used = adata.uns['module_filtering'][adata.uns['module_filtering']['type_tag']=='cell_identity_module']['module_id'].tolist()
-sg.integrate_annotations_noweight(
-                    adata,
-                    ggm_key='ggm',
-                    modules_used=module_used,
-                    result_anno='annotation_old',)
-sg.integrate_annotations_noweight(
-                    adata,
-                    ggm_key='ggm',
-                    modules_used=module_used,
-                    result_anno='annotation_old_no_neighbor',
-                    neighbor_similarity_ratio=0)
-print(f"Time: {time.time() - start_time:.5f} s")
-
-
-# %%
-sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation_old", show=True,
-              save="/annotation_old.pdf")
-sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation_old_no_neighbor", show=True,
-              save="/annotation_old_no_neighbor.pdf")
-
-# %%
-sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation", show=True,
-              save="/annotation_raw.pdf")
 
 # %%
 # 计算各组结果的ARI和NMI
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 
 # Define the columns of interest
-clust_columns = ['annotation', 'annotation_old', 'annotation_old_no_neighbor','annotation_new_all', 'annotation_new_id', 'annotation_new_id_no_optimization']
+clust_columns = ['annotation', 'annotation_old_all', 'annotation_old_all_no_neighbor', 'annotation_old_id', 'annotation_old_id_no_neighbor', 
+                 'annotation_new_all', 'annotation_new_id', 'annotation_new_id_no_optimization']
 # Extract clustering labels from adata.obs
 df = adata.obs[clust_columns]
 # Initialize empty DataFrames for the ARI and NMI matrices
@@ -479,6 +632,14 @@ print(ari_matrix)
 # Display the NMI matrix
 print("\nNormalized Mutual Information (NMI) Matrix:")
 print(nmi_matrix)
+
+
+
+
+
+
+
+
 
 
 
@@ -710,11 +871,15 @@ integrate_annotations_gpu(
                     #device="cuda:0"
                     )
 print(f"Time: {time.time() - start_time:.5f} s")
-sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation_gpu_id", show=True,
-              save="/annotation_gpu_id.pdf")
+sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, show=True, palette=adata.uns['module_colors'],
+              color="annotation_gpu_id", save="/annotation_gpu_id.pdf")
 
 
-
+# %%
+for i in range(10):
+    assign_module_colors(adata, ggm_key='ggm', seed=i) 
+    sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, show=True, palette=adata.uns['module_colors'],
+              color="annotation_old_no_neighbor", save=f"/annotation_old_no_neighbor_test_{i}.pdf")
 # %%
 
 
