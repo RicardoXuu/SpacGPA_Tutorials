@@ -891,19 +891,6 @@ adata.write("data/MOSTA_E16.5_E1S1_ggm_anno.h5ad")
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 # %%
 # 原版：
 def calc_border_flags(coords, k, iqr_factor=1.5):
