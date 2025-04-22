@@ -879,12 +879,15 @@ sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, show=True, palet
 for i in range(10):
     assign_module_colors(adata, ggm_key='ggm', seed=i) 
     sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, show=True, palette=adata.uns['module_colors'],
-              color="annotation_old_no_neighbor", save=f"/annotation_old_no_neighbor_test_{i}.pdf")
+              color="annotation_old_all_no_neighbor", save=f"/annotation_old_all_no_neighbor_test_{i}.pdf")
 # %%
 
 
 
 
+# %%
+# 保存adata
+adata.write("data/MOSTA_E16.5_E1S1_ggm_anno.h5ad")
 
 
 
