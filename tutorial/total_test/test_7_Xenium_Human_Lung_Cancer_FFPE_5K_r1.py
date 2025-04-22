@@ -325,6 +325,8 @@ for image_file in image_files:
     c.setPageSize((img.width, img.height))
     c.drawImage(image_file, 0, 0, width=img.width, height=img.height)
     c.showPage()
+
+# Save the PDF 
 c.save()    
 
 # %%
