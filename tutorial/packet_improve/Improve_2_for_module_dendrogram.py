@@ -47,27 +47,88 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.cluster.hierarchy import linkage, dendrogram, leaves_list
 from scipy.spatial.distance import squareform
-from matplotlib.transforms import Affine2D
+from matplotlib.colors import ListedColormap
 import itertools
 
-def draw_module_dendrogram(
+def calculating_module_similarity(
     adata,
     ggm_key='ggm',
-    corr_method='pearson',
     use_smooth=True,
-    plot=True,
-    fig_width=8,
-    fig_height=8,
+    corr_method='pearson',
     linkage_method='average',
-    tick_fontsize=8,
-    axis_labelsize=10,
-    cbar_ticksize=8,
-    cbar_labelsize=10
+    return_summary=True,
+    plot_heatmap=True,
+    heatmap_metric='correlation',   # 'correlation' or 'jaccard'
+    fig_height=17,
+    fig_width=15,
+    dendrogram_height=0.15,
+    dendrogram_hspace=0.1,
+    axis_fontsize=12,
+    axis_labelsize=15,
+    legend_fontsize=12,
+    legend_labelsize=15,
+    cmap_name='bwr',               # must be one of the 12 diverging maps
+    save_as=None
 ):
+    """
+    Compute module–module Pearson/Spearman/Kendall correlation and Jaccard index,
+    then plot either the upper‐triangle heatmap of correlation or of Jaccard index
+    with a dendrogram above.
+
+    Parameters
+    ----------
+    adata : AnnData
+        Annotated data matrix with module expression and annotations.
+    ggm_key : str
+        Key in adata.uns['ggm_keys'].
+    use_smooth : bool
+        Whether to use smoothed annotation columns.
+    corr_method : {'pearson','spearman','kendall'}
+        Correlation method.
+    linkage_method : str
+        Hierarchical clustering linkage.
+    plot : bool
+        Whether to draw the figure.
+    fig_height, fig_width : float
+        Figure dimensions in inches.
+    dendrogram_height : float
+        Fraction of figure height for the dendrogram.
+    dendrogram_hspace : float
+        Vertical space between dendrogram and heatmap.
+    axis_fontsize : int
+        Tick label font size.
+    axis_labelsize : int
+        Axis label font size.
+    legend_fontsize : int
+        Colorbar tick label font size.
+    legend_labelsize : int
+        Colorbar title font size.
+    cmap_name : str
+        Diverging colormap name (one of the 12 allowed).
+    heatmap_metric : str
+        Which matrix to plot: 'correlation' or 'jaccard'.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns: module_a, module_b, correlation, jaccard_index.
+    """
+    # --- Validate colormap and metric choice ---
+    allowed_cmaps = [
+        'PiYG','PRGn','BrBG','PuOr','RdGy','RdBu',
+        'RdYlBu','RdYlGn','Spectral','coolwarm','bwr','seismic',
+        'PiYG_r','PRGn_r','BrBG_r','PuOr_r','RdGy_r','RdBu_r',
+        'RdYlBu_r','RdYlGn_r','Spectral_r','coolwarm_r','bwr_r','seismic_r'
+    ]
+    if cmap_name not in allowed_cmaps:
+        raise ValueError(f"cmap_name must be one of {allowed_cmaps}")
+    if heatmap_metric not in ['correlation','jaccard']:
+        raise ValueError("heatmap_metric must be 'correlation' or 'jaccard'")
+
     # --- Data prep ---
     ggm_keys = adata.uns.get('ggm_keys', {})
     if ggm_key not in ggm_keys:
-        raise ValueError(f"{ggm_key} missing")
+        raise ValueError(f"{ggm_key} missing in adata.uns['ggm_keys']")
     stat_key = ggm_keys[ggm_key]['module_stats']
     expr_key = ggm_keys[ggm_key]['module_expression']
     stats_df = adata.uns[stat_key]
@@ -78,109 +139,180 @@ def draw_module_dendrogram(
     )
     modules = list(module_expr.columns)
 
-    # --- Compute correlation ---
+    # --- Correlation ---
     if corr_method not in ['pearson','spearman','kendall']:
         raise ValueError("corr_method must be 'pearson','spearman' or 'kendall'")
+    module_expr = module_expr.astype('float64')
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
         corr_df = module_expr.corr(method=corr_method)
-    corr = corr_df.values
-    n = corr.shape[0]
+    corr_mat = corr_df.values
 
-    # --- Mask out lower triangle ---
-    corr_ut = np.triu(corr, k=1)
-    corr_ut[corr_ut < 0] = 0  # enforce non-negative if desired
-
-    # --- Hierarchical clustering order ---
-    dist = 1 - corr
-    Z = linkage(squareform(dist, checks=False), method=linkage_method)
-    leaves = leaves_list(Z)
-    ordered = [modules[i] for i in leaves]
-    corr_ord = corr_df.loc[ordered, ordered].values
-    corr_ut_ord = np.triu(corr_ord, k=1)
-
-    # --- Figure & axes ---
-    if not plot:
-        return pd.DataFrame({
-            'module_a':[], 'module_b':[], 
-            'correlation':[], 'jaccard_index':[]
+    # --- Pairwise stats & Jaccard matrix ---
+    if use_smooth:
+        anno_dict = {
+            mod: (adata.obs.get(f"{mod}_anno_smooth", adata.obs[f"{mod}_anno"]) == mod).astype(int).values
+            for mod in modules
+        }
+    else:
+        anno_dict = {
+            mod: (adata.obs[f"{mod}_anno"] == mod).astype(int).values
+            for mod in modules
+        }
+    records = []
+    jacc_mat = pd.DataFrame(np.nan, index=modules, columns=modules)
+    for i, j in itertools.combinations(range(len(modules)), 2):
+        a, b = anno_dict[modules[i]], anno_dict[modules[j]]
+        inter = np.logical_and(a, b).sum()
+        union = np.logical_or(a, b).sum()
+        jacc = inter / union if union > 0 else np.nan
+        records.append({
+            'module_a': modules[i],
+            'module_b': modules[j],
+            'correlation': float(corr_mat[i, j]),
+            'jaccard_index': jacc
         })
-    fig = plt.figure(figsize=(fig_width, fig_height))
-    ax = fig.add_axes([0,0,1,1])
-    ax.set_aspect('equal')
-    ax.axis('off')
+        jacc_mat.iloc[i, j] = jacc_mat.iloc[j, i] = jacc
+    result_df = pd.DataFrame(records).sort_values(
+        by=['module_a','correlation'],
+        ascending=[True, False]
+    ).reset_index(drop=True)
 
-    # --- Heatmap rotated -45° ---
-    # build a square image of size n×n
-    im = ax.imshow(
-        corr_ut_ord,
-        cmap='Reds', 
-        vmin=0, vmax=np.nanmax(corr_ut_ord),
-        interpolation='none',
-        origin='lower',
-        extent=[0, n, 0, n]
-    )
-    # apply rotation about the center
-    trans = (Affine2D()
-             .translate(-n/2, -n/2)
-             .rotate_deg(-45)
-             .translate(n/2, n/2)
-             + ax.transData)
-    im.set_transform(trans)
+    # --- Plotting ---
+    if plot_heatmap == False and save_as is None:
+        if return_summary:
+            return result_df
+        else:
+            return
+    else:
+        # Hierarchical clustering
+        dist = 1 - corr_mat
+        Z = linkage(squareform(dist, checks=False), method=linkage_method)
+        order = leaves_list(Z)
+        ordered = [modules[k] for k in order]
 
-    # --- Dendrogram along new diagonal ---
-    # create a second invisible axis for the tree
-    ax2 = fig.add_axes([0,0,1,1], sharex=ax, sharey=ax)
-    ax2.axis('off')
-    dendrogram(
-        Z,
-        orientation='right',
-        labels=ordered,
-        no_labels=True,
-        link_color_func=lambda *args, **kwargs: 'black',
-        ax=ax2
-    )
-    # rotate that axis the same way
-    for line in ax2.get_lines():
-        line.set_transform(trans)
+        # Prepare data matrix
+        if heatmap_metric == 'correlation':
+            data_df = corr_df.loc[ordered, ordered]
+            vmin, vmax = np.nanmin(data_df.values), 1
+            cbar_label = 'Correlation'
+        else:  # jaccard
+            data_df = jacc_mat.loc[ordered, ordered]
+            vmin, vmax = 0, 1
+            cbar_label = 'Jaccard index'
 
-    # --- Colorbar ---
-    cax = fig.add_axes([0.92, 0.2, 0.02, 0.6])
-    cb = fig.colorbar(im, cax=cax)
-    cb.ax.tick_params(labelsize=cbar_ticksize)
-    cb.set_label('Correlation', fontsize=cbar_labelsize)
+        # Mask lower triangle
+        mask = np.tril(np.ones(data_df.shape, bool), -1)
 
-    # --- Done ---
-    plt.show()
+        # Build colormap slice
+        full_cmap = plt.get_cmap(cmap_name, 200)
+        colors = full_cmap(np.arange(200))
+        # if heatmap_metric == 'correlation':
+        #     min_val = vmin
+        #     frac = (min_val + 1) / 2  if min_val < 0 else 0.5
+        #     idx = int(np.floor(frac * 199))
+        # else:
+        #     idx = 0
+        # sub_cmap = ListedColormap(colors[idx:], name=f'{cmap_name}_slice')
 
-    # --- Return empty DataFrame as stats no longer relevant here ---
-    return pd.DataFrame({
-        'module_a':[], 'module_b':[], 
-        'correlation':[], 'jaccard_index':[]
-    })
+        colors = full_cmap(np.arange(200))
+        min_val = vmin
+        if min_val < 0:
+            frac = (min_val + 1) / 2
+            idx = int(np.floor(frac * 199))
+        else:
+            idx = 100
+        sub_cmap = ListedColormap(colors[idx:], name=f'{cmap_name}_slice')
 
+        # Figure + gridspec
+        fig = plt.figure(figsize=(fig_width, fig_height))
+        gs = fig.add_gridspec(2, 1,
+                                height_ratios=(dendrogram_height, 1 - dendrogram_height),
+                                hspace=dendrogram_hspace)
+        ax_dend = fig.add_subplot(gs[0, 0])
+        ax_heat = fig.add_subplot(gs[1, 0])
+
+        # Dendrogram
+        dendrogram(Z, ax=ax_dend, labels=ordered, orientation='top',
+                    no_labels=True, link_color_func=lambda *args, **kwargs: 'black')
+        ax_dend.axis('off')
+
+        # Heatmap
+        sns.heatmap(
+            data_df.values,
+            mask=mask,
+            cmap=sub_cmap,
+            vmin=vmin,
+            vmax=vmax,
+            xticklabels=ordered,
+            yticklabels=ordered,
+            square=False,
+            cbar=False,
+            ax=ax_heat
+        )
+
+        # Axis adjustments
+        ax_heat.xaxis.tick_top()
+        ax_heat.xaxis.set_label_position('top')
+        ax_heat.yaxis.tick_right()
+        ax_heat.yaxis.set_label_position('right')
+        n = len(ordered)
+        ax_heat.set_xticks(np.arange(n) + 0.5)
+        ax_heat.set_yticks(np.arange(n) + 0.5)
+        ax_heat.set_xticklabels(ordered, rotation=90, ha='center', fontsize=axis_fontsize)
+        ax_heat.set_yticklabels(ordered, rotation=0, fontsize=axis_fontsize)
+        ax_heat.set_ylabel('Module', fontsize=axis_labelsize)
+
+        # Colorbar
+        cax = fig.add_axes([0.14, 0.14, 0.02, 0.2])
+        sm = plt.cm.ScalarMappable(cmap=sub_cmap, norm=plt.Normalize(vmin=vmin, vmax=vmax))
+        sm.set_array(data_df.values)
+        cb = fig.colorbar(sm, cax=cax, orientation='vertical')
+        cb.ax.tick_params(labelsize=legend_fontsize)
+        cb.set_label(cbar_label, fontsize=legend_labelsize)
+
+        # --- Save to file(s) if requested ---
+        if save_as is not None:
+            format = save_as.split('.')[-1]
+            if format not in ['pdf', 'png']:
+                raise ValueError("only 'pdf' and 'png' formats are supported for saving.")
+            if format == 'pdf':
+                fig.savefig(save_as, format=format, bbox_inches='tight')
+            if format == 'png':
+                fig.savefig(save_as, format=format, bbox_inches='tight', dpi=300)    
+        if plot_heatmap:
+            plt.show()
+        if return_summary:
+            return result_df
+        else:
+            return
 
 
 # %%
 # 测试
-mod_cor = draw_module_dendrogram(adata,
-                                ggm_key='ggm',
-                                use_smooth=True,
-                                corr_method='pearson',
-                                plot=True,
-                                linkage_method='average',
-                                fig_height=16,
-                                fig_width=15,
-                                #dendrogram_height=0.1,
-                                tick_fontsize=15,
-                                axis_labelsize=15,
-                                cbar_ticksize=12,
-                                cbar_labelsize=15,
-                                )
+mod_cor = calculating_module_similarity(adata,
+                                        ggm_key='ggm',
+                                        use_smooth=True,
+                                        corr_method='pearson',
+                                        linkage_method='average',
+                                        return_summary=True,
+                                        plot_heatmap=True,
+                                        heatmap_metric='jaccard',   # 'correlation' or 'jaccard'
+                                        fig_height=17,
+                                        fig_width=15,
+                                        dendrogram_height=0.15,
+                                        dendrogram_hspace=0.08,
+                                        axis_fontsize=12,
+                                        axis_labelsize=15,
+                                        legend_fontsize=12,
+                                        legend_labelsize=15,
+                                        cmap_name='bwr',               # must be one of the 24 diverging maps
+                                        save_as="figures/module_dendrogram.png"  # or "figures/module_dendrogram.png"
+                                        )
 
 
 # %%
-mod_cor['correlation'].describe()
+mod_cor
 
 
 # %%
@@ -292,4 +424,74 @@ def draw_module_dendrogram(
         plt.show()
         
     return result_df
+
+# %%
+# 测试
+mod_cor = draw_module_dendrogram(adata,
+                                ggm_key='ggm',
+                                corr_method='pearson',    # 'pearson', 'spearman', or 'kendall'
+                                use_smooth=True,
+                                plot=True,
+                                figsize=(15, 15),
+                                linkage_method='average'
+                                )
+                                 
+# %%
+import scanpy as sc
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.cluster.hierarchy import linkage, dendrogram
+from scipy.spatial.distance import squareform
+import seaborn as sns
+
+def draw_module_dendrogram(adata,
+                          expression_key = 'module_expression',
+                          figsize=(15,15)
+                          ):
+    # Assuming adata is your AnnData object with module_expression in obsm
+    module_expression = adata.obsm[expression_key]
+
+    n_samples = module_expression.shape[1]
+    sample_names = [f'M{i+1}' for i in range(n_samples)]
+
+    # 1. Compute correlation matrix
+    corr_matrix = np.corrcoef(module_expression, rowvar=False)  # Correlation between columns (modules)
+
+    # 2. Convert correlation to distance (1 - correlation)
+    distance_matrix = 1 - corr_matrix
+
+    # 3. Perform hierarchical clustering
+    # Convert to condensed form (required by linkage)
+    condensed_dist = squareform(distance_matrix, checks=False)
+    Z = linkage(condensed_dist, method='average')  # You can try 'ward', 'complete', etc.
+
+    # 4. Plot dendrogram
+    #plt.figure(figsize=(10, 5))
+    #dendrogram(Z, labels=sample_names)
+    #plt.title('Dendrogram of Module Expression')
+    #plt.xlabel('Modules')
+    #plt.ylabel('Distance (1 - correlation)')
+    #plt.show()
+
+    # 5. Create 2D dendrogram-heatmap
+    # Create a DataFrame for the heatmap
+    df_corr = pd.DataFrame(corr_matrix, index=sample_names,columns=sample_names)
+
+    # Plot clustered heatmap
+    g = sns.clustermap(df_corr, 
+                       row_linkage=Z, 
+                       col_linkage=Z,
+                       cmap='coolwarm', 
+                       center=0,
+                       figsize=figsize,
+                       dendrogram_ratio=0.1)
+    g.ax_heatmap.set_xlabel('Module')
+    g.ax_heatmap.set_ylabel('Module')
+    #g.ax_heatmap.set_title('Module Expression Correlation Heatmap with Dendrogram')
+    plt.show()
+
+# %%
+draw_module_dendrogram(adata,
+                       expression_key='module_expression')  
 # %%
