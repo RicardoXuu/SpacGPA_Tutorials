@@ -4,18 +4,22 @@ import pandas as pd
 import numpy as np
 import scipy.sparse as sp
 import networkx as nx
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+import itertools
+import warnings
+import leidenalg
+import sys
+import random
 from sklearn.preprocessing import StandardScaler
 from sklearn.mixture import GaussianMixture
 from scipy.spatial.distance import pdist
 from scipy.stats import skew, rankdata
 from igraph import Graph
 from sklearn.neighbors import NearestNeighbors, KernelDensity
-import itertools
-import warnings
-import leidenalg
-import sys
-import random
-
+from matplotlib import colors as mcolors
+from scanpy.plotting.palettes import default_20, vega_10, vega_20
+from matplotlib.lines import Line2D
 
 #################### support functions ####################
 # construct_spatial_weights 
@@ -99,6 +103,125 @@ def calc_border_flags(coords, k, iqr_factor=1.5):
 
 
 #################### main function ####################
+# assign_module_colors 
+def assign_module_colors(adata, ggm_key='ggm', seed=1):
+    """
+    Create and store a consistent color mapping for gene modules.
+
+    Depending on the number of modules, this function selects from
+    Scanpy/Vega discrete palettes (up to 100 modules) or XKCD_COLORS
+    (above 100 modules). If `seed` is non-zero, colors are shuffled
+    reproducibly; if zero, the order is deterministic.
+
+    Parameters
+    ----------
+    adata : AnnData
+        Annotated data object containing module metadata under
+        adata.uns['ggm_keys'][ggm_key].
+    ggm_key : str, default 'ggm'
+        Key in adata.uns['ggm_keys'] that defines module stats and
+        where to store the resulting color dictionary.
+    seed : int, default 1
+        Random seed for reproducible shuffling. A value of 0 means
+        no randomization.
+
+    Returns
+    -------
+    dict
+        Mapping from module IDs to hex color codes or named colors.
+    """
+    # Retrieve GGM metadata from adata.uns
+    ggm_meta = adata.uns.get('ggm_keys', {}).get(ggm_key)
+    if ggm_meta is None:
+        raise ValueError(f"{ggm_key} not found in adata.uns['ggm_keys']")
+    mod_stats_key = ggm_meta.get('module_stats')
+    mod_col_val   = ggm_meta.get('module_colors')
+
+    # Load module statistics and extract module IDs
+    module_stats = adata.uns.get(mod_stats_key)
+    if module_stats is None:
+        raise ValueError(f"Module statistics not found in adata.uns['{mod_stats_key}']")
+    df = module_stats if isinstance(module_stats, pd.DataFrame) else pd.DataFrame(module_stats)
+    module_ids = df['module_id'].tolist()
+
+    n_all = len(module_ids)
+    if n_all == 0:
+        return {}
+    n_modules = min(n_all, 806)
+
+    # Initialize random number generator if needed
+    rng = np.random.RandomState(seed) if seed != 0 else None
+    
+    # Select base color palette according to module count
+    if n_modules <= 10:
+        colors = vega_10[:n_modules]
+    elif n_modules <= 20:
+        colors = default_20[:n_modules]
+    elif n_modules <= 40:
+        # combine two 20-color palettes to reach up to 40
+        colors = (default_20 + vega_20)[:n_modules]
+    elif n_modules <= 60:
+        # combine three 20-color palettes to reach up to 60
+        tab20b = [mpl.colors.to_hex(c) for c in plt.get_cmap('tab20b').colors]
+        colors = (default_20 + vega_20 + tab20b)[:n_modules]
+    elif n_modules <= 100:
+        tab20b  = [mpl.colors.to_hex(c) for c in plt.get_cmap('tab20b').colors]
+        tab20c  = [mpl.colors.to_hex(c) for c in plt.get_cmap('tab20c').colors]
+        set3    = [mpl.colors.to_hex(c) for c in plt.get_cmap('Set3').colors]
+        pastel2 = [mpl.colors.to_hex(c) for c in plt.get_cmap('Pastel2').colors]
+        palette_combo = default_20 + vega_20 + tab20b + tab20c + set3 + pastel2
+        colors = palette_combo[:n_modules]
+    else:
+        # More than 100 modules: sample from filtered XKCD_COLORS by HSV order
+        xkcd_colors = mcolors.XKCD_COLORS
+        to_remove = ['gray','grey','black','white','light',
+                     'lawngreen','silver','gainsboro','snow',
+                     'mintcream','ivory','fuchsia','cyan']
+        filtered = {
+            name: col for name, col in xkcd_colors.items()
+            if not any(key in name for key in to_remove)
+        }
+        sorted_hsv = sorted(
+            ((tuple(mcolors.rgb_to_hsv(mcolors.to_rgba(col)[:3])), name))
+            for name, col in filtered.items()
+        )
+        sorted_names = [name for hsv, name in sorted_hsv]
+        if rng is not None:
+            if len(sorted_names) >= n_modules:
+                colors = list(rng.choice(sorted_names, size=n_modules, replace=False))
+            else:
+                base = sorted_names.copy()
+                rem = n_modules - len(base)
+                vir = plt.cm.viridis
+                extra = [mpl.colors.to_hex(vir(i/(rem-1))) for i in range(rem)]
+                colors = base + extra
+        else:
+            L = len(sorted_names)
+            step = L / n_modules
+            colors = [sorted_names[int(i * step)] for i in range(n_modules)]
+
+    # Handle modules beyond 806 by repeating or sampling
+    if n_all > 806:
+        extra_count = n_all - 806
+        if rng is not None:
+            extra = list(rng.choice(colors, size=extra_count, replace=True))
+        else:
+            extra = [colors[i % len(colors)] for i in range(extra_count)]
+        colors += extra
+
+    # Shuffle full color list if RNG provided
+    if rng is not None:
+        perm = rng.permutation(len(colors))
+        colors = [colors[i] for i in perm]
+
+    # Build the module-to-color dictionary and store in adata.uns
+    color_dict = {module_ids[i]: colors[i] for i in range(n_all)}
+    if isinstance(mod_col_val, str):
+        adata.uns.setdefault(mod_col_val, {}).update(color_dict)
+    else:
+        raise ValueError(f"Invalid module color key in adata.uns['{mod_col_val}']: {mod_col_val}")
+
+
 # calculate_module_expression 
 def calculate_module_expression(adata, 
                                 ggm_obj, 
@@ -108,7 +231,8 @@ def calculate_module_expression(adata,
                                 calculate_moran=False, 
                                 embedding_key='spatial',
                                 k_neighbors=6,
-                                add_go_anno=3):
+                                add_go_anno=3,
+                                set_module_colors=True):
     """
     Calculate and store module expression in adata based on input modules.
     
@@ -124,6 +248,7 @@ def calculate_module_expression(adata,
         k_neighbors: int, number of nearest neighbors for constructing spatial weights.
         add_go_anno: int, default as 3. If the value is greater than 0 (and between 0 and 10), 
                      for each module, extract the top GO terms from ggm.go_enrichment and integrate them into module_df.
+        set_module_colors: bool, if True, assign colors to modules and store in adata.uns['module_colors'].
     """
     # get module information
     if isinstance(ggm_obj, pd.DataFrame):
@@ -307,6 +432,10 @@ def calculate_module_expression(adata,
         'module_expression_scaled': expr_scaled_key,
         'module_obs_prefix': col_prefix
     }
+    # (Optional) Set module colors
+    if set_module_colors:
+        print(f"\nAssigning colors to {len(module_ids)} modules...")
+        assign_module_colors(adata, ggm_key=ggm_key)
     print(f"\nTotal {n_modules} modules' average expression calculated and stored in adata.obs and adata.obsm")
 
 
