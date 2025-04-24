@@ -37,3 +37,6 @@ autosummary_generate = True
 autodoc_typehints = "description"
 autodoc_mock_imports = ["torch", "scanpy", "anndata"]
 
+nbsphinx_execute = "never"
+nbsphinx_allow_errors = True
+nbsphinx_require_title = False
