@@ -45,23 +45,6 @@ sg.assign_module_colors(adata, ggm_key='ggm')
 # %%
 adata.uns['module_stats']
 
-
-# %%
-start_time = time.time()
-sg.calculate_module_expression(adata, 
-                               ggm, 
-                               ggm_key='ggm',
-                               top_genes=30,
-                               weighted=True,
-                               calculate_moran=False,
-                               embedding_key='spatial',
-                               k_neighbors=6,
-                               add_go_anno=5,
-                               )
-print(f"Time: {time.time() - start_time:.5f} s")
-print(adata.uns['module_info'])
-
-
 # %%
 # 新版函数测试：
 mod_cor = sg.calculating_module_similarity(adata,

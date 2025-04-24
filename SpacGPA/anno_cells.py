@@ -21,6 +21,7 @@ from matplotlib import colors as mcolors
 from scanpy.plotting.palettes import default_20, vega_10, vega_20
 from matplotlib.lines import Line2D
 
+
 #################### support functions ####################
 # construct_spatial_weights 
 def construct_spatial_weights(coords, k_neighbors=6):
@@ -134,15 +135,14 @@ def assign_module_colors(adata, ggm_key='ggm', seed=1):
     ggm_meta = adata.uns.get('ggm_keys', {}).get(ggm_key)
     if ggm_meta is None:
         raise ValueError(f"{ggm_key} not found in adata.uns['ggm_keys']")
-    mod_stats_key = ggm_meta.get('module_stats')
+    mod_info_key = ggm_meta.get('module_info')
     mod_col_val   = ggm_meta.get('module_colors')
 
     # Load module statistics and extract module IDs
-    module_stats = adata.uns.get(mod_stats_key)
-    if module_stats is None:
-        raise ValueError(f"Module statistics not found in adata.uns['{mod_stats_key}']")
-    df = module_stats if isinstance(module_stats, pd.DataFrame) else pd.DataFrame(module_stats)
-    module_ids = df['module_id'].tolist()
+    module_info = adata.uns.get(mod_info_key)
+    if module_info is None:
+        raise ValueError(f"Module Info not found in adata.uns['{mod_info_key}']")
+    module_ids = module_info['module_id'].unique()
 
     n_all = len(module_ids)
     if n_all == 0:
