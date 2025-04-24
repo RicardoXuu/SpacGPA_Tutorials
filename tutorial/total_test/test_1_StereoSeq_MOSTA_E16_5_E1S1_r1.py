@@ -411,7 +411,7 @@ print(f"Time: {time.time() - start_time:.5f} s")
 
 
 # %%
-sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation_new_id", show=True,
+sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation_new_id", show=True, palette=adata.uns['module_colors'],
               save="/MOSTA_E16_5_E1S1_ggm_modules_annotation_new_id.pdf")
 
 
@@ -439,7 +439,7 @@ print(f"Time: {time.time() - start_time:.5f} s")
 
 
 # %%
-sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation_new_all", show=True,
+sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation_new_all", show=True, palette=adata.uns['module_colors'],
               save="/MOSTA_E16_5_E1S1_ggm_modules_annotation_new_all.pdf")
 
 
