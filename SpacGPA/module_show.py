@@ -111,91 +111,86 @@ def calculating_module_similarity(
     linkage_method='average',
     return_summary=True,
     plot_heatmap=True,
-    heatmap_metric='correlation',   # 'correlation' or 'jaccard'
-    fig_height=17,
-    fig_width=15,
+    show_full_heatmap = True,
+    heatmap_metric='correlation',
+    fig_height=15,
+    fig_width=16,
     dendrogram_height=0.15,
-    dendrogram_hspace=0.1,
+    dendrogram_space=0.08,
     axis_fontsize=12,
     axis_labelsize=15,
     legend_fontsize=12,
     legend_labelsize=15,
-    cmap_name='bwr',               # must be one of the 12 diverging maps
+    cmap_name='bwr',
     save_plot_as=None
 ):
     """
-    Calculate module-module similarity metrics and optionally visualize as a dendrogram-heatmap.
+    Compute pairwise module similarity and optionally visualize as a clustered heatmap.
 
-    The function computes pairwise Pearson/Spearman/Kendall correlation between module
-    expression profiles, and the Jaccard index between module annotation binary vectors.
-    It then optionally plots the upper triangle of the selected metric (correlation or
-    Jaccard) as a heatmap, with a hierarchical clustering dendrogram above.
+    This function calculates correlation and Jaccard index between modules based on
+    expression profiles and annotations stored in an AnnData object. It can produce
+    either a half-matrix (upper triangle only) or a full-matrix heatmap with
+    hierarchical clustering dendrograms.
 
     Parameters
     ----------
     adata : AnnData
-        Annotated data object containing:
-          - module expression in adata.obsm[expr_key]
-          - module annotations in adata.obs["{module}_anno"] or "_anno_smooth"
+        Annotated data containing module expression in .obsm and annotations in .obs.
     ggm_key : str, default 'ggm'
-        Key in adata.uns['ggm_keys'] mapping to module_info and module_expression entries.
-    modules_used : list of str or None, default None
-        List of module IDs to include in the analysis. If None, all modules are used.
-    modules_excluded : list of str or None, default None
-        List of module IDs to exclude from the analysis. If None, no modules are excluded.    
+        Key to access module stats and expression arrays in adata.uns['ggm_keys'].
+    modules_used : list of str or None
+        Module IDs to include; all modules if None.
+    modules_excluded : list of str or None
+        Module IDs to exclude; none if None.
     use_smooth : bool, default True
-        If True, use "{module}_anno_smooth" if available; otherwise use "{module}_anno".
+        Use smoothed annotations if available.
     corr_method : {'pearson','spearman','kendall'}, default 'pearson'
-        Method for computing correlation between module expression vectors.
+        Correlation method for expression profiles.
     linkage_method : str, default 'average'
-        Linkage method for hierarchical clustering; choices:
-        'single','complete','average','weighted','centroid','median','ward'.
+        Linkage method for hierarchical clustering.
     return_summary : bool, default True
-        If True, return the DataFrame of pairwise metrics; otherwise return None.
+        Return DataFrame of module-pair metrics if True.
     plot_heatmap : bool, default True
-        If True, generate and display the dendrogram-heatmap.
+        Display the heatmap and dendrogram plot if True.
+    show_full_heatmap : bool, default True
+        Plot full symmetric matrix if True; otherwise upper triangle only.
     heatmap_metric : {'correlation','jaccard'}, default 'correlation'
-        Which metric to display in the heatmap upper triangle.
-    fig_height, fig_width : float, default (17, 15)
+        Metric to visualize in the heatmap.
+    fig_height, fig_width : float
         Figure dimensions in inches.
-    dendrogram_height : float, default 0.15
-        Fraction of total figure height allocated to the dendrogram row.
-    dendrogram_hspace : float, default 0.1
-        Vertical spacing between dendrogram and heatmap in normalized units.
-    axis_fontsize : int, default 12
-        Font size for module tick labels.
-    axis_labelsize : int, default 15
-        Font size for axis titles.
-    legend_fontsize : int, default 12
-        Font size for colorbar tick labels.
-    legend_labelsize : int, default 15
-        Font size for colorbar title.
-    cmap_name : str, default 'bwr'
-        Diverging colormap name (one of the 12 allowed in matplotlib):
-        ['PiYG','PRGn','BrBG','PuOr','RdGy','RdBu','RdYlBu','RdYlGn',
-         'Spectral','coolwarm','bwr','seismic'] plus their "_r" variants.
-    save_as : str or None, default None
-        If provided, save the figure to this path (must end in '.pdf' or '.png').
+    dendrogram_height : float
+        Fraction of figure allocated to each dendrogram.
+    dendrogram_space : float
+        Spacing between dendrogram and heatmap axes.
+    axis_fontsize, axis_labelsize : int
+        Font sizes for tick labels and axis labels.
+    legend_fontsize, legend_labelsize : int
+        Font sizes for colorbar and legend text.
+    cmap_name : str
+        Name of diverging colormap.
+    save_plot_as : str or None
+        File path to save the figure; supports '.pdf' or '.png'.
 
     Returns
     -------
     pd.DataFrame or None
-        If return_summary is True, DataFrame columns:
-          ['module_a','module_b','correlation','jaccard_index']
-        Otherwise, None.
+        DataFrame with columns ['module_a','module_b','correlation','jaccard_index']
+        if return_summary is True and plotting is disabled; otherwise None.
     """
-    # Validate colormap and heatmap metric
+    # validate colormap and metric
     allowed_cmaps = [
         'PiYG','PRGn','BrBG','PuOr','RdGy','RdBu',
         'RdYlBu','RdYlGn','Spectral','coolwarm','bwr','seismic'
-    ]
-    allowed_cmaps += [c + '_r' for c in allowed_cmaps]
+    ] + [c + '_r' for c in [
+        'PiYG','PRGn','BrBG','PuOr','RdGy','RdBu',
+        'RdYlBu','RdYlGn','Spectral','coolwarm','bwr','seismic'
+    ]]
     if cmap_name not in allowed_cmaps:
         raise ValueError(f"cmap_name must be one of {allowed_cmaps}")
     if heatmap_metric not in ['correlation','jaccard']:
         raise ValueError("heatmap_metric must be 'correlation' or 'jaccard'")
 
-    # Prepare module expression matrix
+    # prepare module expression matrix
     ggm_keys = adata.uns.get('ggm_keys', {})
     if ggm_key not in ggm_keys:
         raise ValueError(f"{ggm_key} missing in adata.uns['ggm_keys']")
@@ -203,42 +198,36 @@ def calculating_module_similarity(
     expr_key = ggm_keys[ggm_key]['module_expression']
     stats_df = adata.uns[stat_key]
     module_expr = pd.DataFrame(
-        adata.obsm[expr_key],
-        index=adata.obs_names,
+        adata.obsm[expr_key], index=adata.obs_names,
         columns=stats_df['module_id']
     )
-    if modules_used is None:
-        modules = list(module_expr.columns)
-    else:
-        if not isinstance(modules_used, list):
-            raise ValueError("modules_used must be a list of module IDs")
-        modules = [mid for mid in modules_used if mid in module_expr.columns]
-    if not modules:
-        raise ValueError(f"Ensure that the input module IDs exist in adata.uns['{stat_key}']")
+
+    # filter modules
+    modules = list(module_expr.columns) if modules_used is None else [
+        m for m in modules_used if m in module_expr
+    ]
+    if modules_excluded:
+        modules = [m for m in modules if m not in modules_excluded]
     if len(modules) < 2:
-        raise ValueError("At least two modules are required for correlation analysis")
-    if modules_excluded is not None:
-        modules = [mid for mid in modules if mid not in modules_excluded]
-    
-    module_expr = module_expr[modules] 
-    # Compute correlation matrix
-    if corr_method not in ['pearson','spearman','kendall']:
-        raise ValueError("corr_method must be 'pearson','spearman', or 'kendall'")
+        raise ValueError("At least two modules are required")
+    module_expr = module_expr[modules]
+
+    # compute correlation matrix
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
         corr_df = module_expr.astype(float).corr(method=corr_method)
     corr_mat = corr_df.values
 
-    # Compute Jaccard index matrix
+    # compute Jaccard index matrix
     if use_smooth:
         anno_dict = {
-            mod: (adata.obs.get(f"{mod}_anno_smooth", adata.obs[f"{mod}_anno"]) == mod).astype(int).values
-            for mod in modules
+            m: (adata.obs.get(f"{m}_anno_smooth", adata.obs[f"{m}_anno"]) == m).astype(int).values
+            for m in modules
         }
     else:
         anno_dict = {
-            mod: (adata.obs[f"{mod}_anno"] == mod).astype(int).values
-            for mod in modules
+            m: (adata.obs[f"{m}_anno"] == m).astype(int).values
+            for m in modules
         }
     records = []
     jacc_mat = pd.DataFrame(np.nan, index=modules, columns=modules)
@@ -255,96 +244,131 @@ def calculating_module_similarity(
             'jaccard_index': jacc
         })
         jacc_mat.iat[i, j] = jacc_mat.iat[j, i] = jacc
-    result_df = (
-        pd.DataFrame(records)
-          .sort_values(['module_a','correlation'], ascending=[True, False])
-          .reset_index(drop=True)
-    )
+    result_df = pd.DataFrame(records)
 
-    # Return only summary if no plotting
+    # return summary if no plotting
     if not plot_heatmap and save_plot_as is None:
         return result_df if return_summary else None
 
-    # Hierarchical clustering on correlation distances
-    dist = 1 - corr_mat
-    Z = linkage(squareform(dist, checks=False), method=linkage_method)
-    order = leaves_list(Z)
-    ordered = [modules[k] for k in order]
+    # hierarchical clustering
+    Z = linkage(squareform(1 - corr_mat, checks=False), method=linkage_method)
+    ordered = [modules[i] for i in leaves_list(Z)]
+    n = len(ordered)
 
-    # Select data for heatmap
+    # select heatmap data
     if heatmap_metric == 'correlation':
         data_df = corr_df.loc[ordered, ordered]
-        vmin, vmax = np.nanmin(data_df.values), 1
-        cbar_label = 'Correlation'
+        vmin, vmax, cbar_label = np.nanmin(data_df.values), 1, 'Correlation'
     else:
-        data_df = jacc_mat.loc[ordered, ordered]
-        vmin, vmax = 0, 1
-        cbar_label = 'Jaccard index'
-        # ensure self‐overlap shown as 1 on the diagonal
+        data_df = jacc_mat.loc[ordered, ordered].copy()
         np.fill_diagonal(data_df.values, 1.0)
+        vmin, vmax, cbar_label = 0, 1, 'Jaccard index'
+    mask = None if show_full_heatmap else np.tril(np.ones_like(data_df, bool), -1)
 
-    # Mask lower triangle
-    mask = np.tril(np.ones_like(data_df, bool), -1)
-
-    # Build sliced colormap
+    # prepare colormap slice
     full_cmap = plt.get_cmap(cmap_name, 200)
-    colors = full_cmap(np.arange(200))
-    min_val = vmin
-    frac = (min_val + 1) / 2 if (heatmap_metric == 'correlation' and min_val < 0) else 0.5
-    idx = int(np.floor(frac * 199))
-    sub_cmap = ListedColormap(colors[idx:], name=f'{cmap_name}_slice')
-
-    # Plot dendrogram + heatmap
-    fig = plt.figure(figsize=(fig_width, fig_height))
-    gs = fig.add_gridspec(
-        2, 1,
-        height_ratios=(dendrogram_height, 1 - dendrogram_height),
-        hspace=dendrogram_hspace
-    )
-    ax_dend = fig.add_subplot(gs[0, 0])
-    ax_heat = fig.add_subplot(gs[1, 0])
-
-    dendrogram(Z, ax=ax_dend, labels=ordered,
-               orientation='top', no_labels=True,
-               link_color_func=lambda *args, **kwargs: 'black')
-    ax_dend.axis('off')
-
-    sns.heatmap(
-        data_df.values, mask=mask,
-        cmap=sub_cmap, vmin=vmin, vmax=vmax,
-        xticklabels=ordered, yticklabels=ordered,
-        square=False, cbar=False, ax=ax_heat
+    sub_cmap = ListedColormap(
+        full_cmap(np.arange(200))[int(((vmin+1)/2 if heatmap_metric=='correlation' and vmin<0 else 0.5)*199):],
+        name=f'{cmap_name}_slice'
     )
 
-    # Adjust axes
-    ax_heat.xaxis.tick_top()
-    ax_heat.xaxis.set_label_position('top')
-    ax_heat.yaxis.tick_right()
-    ax_heat.yaxis.set_label_position('right')
-    ticks = np.arange(len(ordered)) + 0.5
-    ax_heat.set_xticks(ticks)
-    ax_heat.set_yticks(ticks)
-    ax_heat.set_xticklabels(ordered, rotation=90, ha='center', fontsize=axis_fontsize)
-    ax_heat.set_yticklabels(ordered, rotation=0, fontsize=axis_fontsize)
-    ax_heat.set_ylabel('Module', fontsize=axis_labelsize)
+    # plotting
+    if not show_full_heatmap:
+        fig = plt.figure(figsize=(fig_width, fig_height))
+        gs = fig.add_gridspec(2, 1,
+                              height_ratios=(dendrogram_height, 1-dendrogram_height),
+                              hspace=dendrogram_space)
+        ax_dend = fig.add_subplot(gs[0, 0])
+        ax_heat = fig.add_subplot(gs[1, 0])
 
-    # Colorbar
-    cax = fig.add_axes([0.14, 0.14, 0.02, 0.2])
-    sm = plt.cm.ScalarMappable(cmap=sub_cmap, norm=plt.Normalize(vmin=vmin, vmax=vmax))
-    sm.set_array(data_df.values)
-    cb = fig.colorbar(sm, cax=cax, orientation='vertical')
-    cb.ax.tick_params(labelsize=legend_fontsize)
-    cb.set_label(cbar_label, fontsize=legend_labelsize)
+        dendrogram(Z, ax=ax_dend, labels=ordered,
+                   orientation='top', no_labels=True,
+                   link_color_func=lambda *a, **k: 'black')
+        ax_dend.axis('off')
 
-    # Save figure if requested
-    if save_plot_as is not None:
-        fmt = save_plot_as.split('.')[-1]
-        if fmt not in ['pdf','png']:
-            raise ValueError("only 'pdf' and 'png' formats are supported for saving.")
-        kwargs = {'bbox_inches':'tight'}
-        if fmt == 'png':
-            kwargs['dpi'] = 300
-        fig.savefig(save_plot_as, format=fmt, **kwargs)
+        sns.heatmap(data_df.values, mask=mask, cmap=sub_cmap,
+                    vmin=vmin, vmax=vmax,
+                    xticklabels=ordered, yticklabels=ordered,
+                    square=False, cbar=False, ax=ax_heat)
+
+        # adjust axes for half-matrix
+        ax_heat.xaxis.tick_top()
+        ax_heat.xaxis.set_label_position('top')
+        ax_heat.yaxis.tick_right()
+        ax_heat.yaxis.set_label_position('right')
+        ticks = np.arange(n) + 0.5
+        ax_heat.set_xticks(ticks)
+        ax_heat.set_yticks(ticks)
+        ax_heat.set_xticklabels(ordered, rotation=90, ha='center', fontsize=axis_fontsize)
+        ax_heat.set_yticklabels(ordered, rotation=0, fontsize=axis_fontsize)
+        ax_heat.set_ylabel('Module', fontsize=axis_labelsize)
+
+        # colorbar for half-matrix
+        cax = fig.add_axes([0.14, 0.14, 0.02, 0.2])
+        sm = plt.cm.ScalarMappable(cmap=sub_cmap,
+                                   norm=plt.Normalize(vmin=vmin, vmax=vmax))
+        sm.set_array(data_df.values)
+        cb = fig.colorbar(sm, cax=cax, orientation='vertical')
+        cb.ax.tick_params(labelsize=legend_fontsize)
+        cb.set_label(cbar_label, fontsize=legend_labelsize)
+
+    else:
+        fig = plt.figure(figsize=(fig_width, fig_height))
+        gs = fig.add_gridspec(2, 2,
+                              width_ratios=(dendrogram_height, 1-dendrogram_height),
+                              height_ratios=(dendrogram_height, 1-dendrogram_height),
+                              wspace=dendrogram_space, hspace=0)
+        ax_row = fig.add_subplot(gs[1, 0])
+        ax_col = fig.add_subplot(gs[0, 1])
+        ax_heat = fig.add_subplot(gs[1, 1])
+
+        dendrogram(Z, ax=ax_col, labels=ordered,
+                   orientation='top', no_labels=True,
+                   link_color_func=lambda *a, **k: 'black')
+        ax_col.axis('off')
+
+        dendrogram(Z, ax=ax_row, labels=ordered,
+                   orientation='left', no_labels=True,
+                   link_color_func=lambda *a, **k: 'black')
+        ax_row.axis('off')
+        ax_row.invert_yaxis()
+
+        sns.heatmap(data_df.values, mask=mask, cmap=sub_cmap,
+                    vmin=vmin, vmax=vmax,
+                    xticklabels=ordered, yticklabels=ordered,
+                    square=False, cbar=False, ax=ax_heat)
+
+        # adjust axes for full-matrix
+        ticks = np.arange(n) + 0.5
+        ax_heat.xaxis.tick_bottom()
+        ax_heat.set_xticks(ticks)
+        ax_heat.set_xticklabels(ordered, rotation=45,
+                                ha='right', va='top',
+                                fontsize=axis_fontsize,
+                                rotation_mode='anchor')
+        ax_heat.yaxis.tick_left()
+        ax_heat.set_yticks(ticks)
+        ax_heat.set_yticklabels(ordered, fontsize=axis_fontsize)
+        ax_heat.tick_params(axis='both', pad=1)
+        ax_heat.set_xlabel('Module', fontsize=axis_labelsize)
+        ax_heat.set_ylabel('')
+
+        # colorbar for full-matrix
+        cax = fig.add_axes([0.92, 0.3, 0.02, 0.2])
+        sm = plt.cm.ScalarMappable(norm=plt.Normalize(vmin=vmin, vmax=vmax),
+                                   cmap=sub_cmap)
+        sm.set_array([])
+        cb = fig.colorbar(sm, cax=cax, orientation='vertical')
+        cb.ax.set_ylabel(cbar_label, fontsize=legend_labelsize)
+        cb.ax.tick_params(labelsize=legend_fontsize)
+
+    # save figure if requested
+    if save_plot_as:
+        ext = save_plot_as.split('.')[-1]
+        if ext not in ['pdf', 'png']:
+            raise ValueError("save_plot_as must end with .pdf or .png")
+        dpi = 300 if ext == 'png' else None
+        fig.savefig(save_plot_as, dpi=dpi, bbox_inches='tight')
 
     if plot_heatmap:
         plt.show()
@@ -361,11 +385,12 @@ def module_dot_plot(
     groupby: str = None,
     show_dendrogram: bool = True,
     dendrogram_height: float = 0.15,
+    dendrogram_space: float = 0.1,
     scale: bool = False,
     corr_method: str = 'pearson',
     linkage_method: str = 'average',
-    fig_height: float = 10,
-    fig_width: float = 8,
+    fig_height: float = 8,
+    fig_width: float = 10,
     dot_max_size: float = 200,
     cmap: str = 'Reds',
     axis_fontsize: int = 12,
@@ -399,6 +424,9 @@ def module_dot_plot(
         Whether to display hierarchical clustering dendrograms.
     dendrogram_height : float, default 0.15
         Fraction of figure height allocated to each dendrogram.
+    dendrogram_space : float, default 0.1
+        Horizontal gap between the left dendrogram and the y-axis tick labels when
+        show_dendrogram is True (0 → flush; larger → wider gap).    
     scale : bool, default False
         Scale mean expression values for each module to [0,1].
     corr_method : str, default 'pearson'
@@ -493,13 +521,13 @@ def module_dot_plot(
     ys = plot_df['group'].map(g2i)
 
     # 4) Create figure and axes
-    fig = plt.figure(figsize=(fig_width, fig_height), constrained_layout=True)
+    fig = plt.figure(figsize=(fig_width, fig_height))
     if show_dendrogram:
         gs = fig.add_gridspec(
             2, 2,
             width_ratios=(dendrogram_height, 1 - dendrogram_height),
             height_ratios=(dendrogram_height, 1 - dendrogram_height),
-            hspace=0, wspace=0
+            hspace=0, wspace=dendrogram_space
         )
         ax_row = fig.add_subplot(gs[1, 0])
         ax_col = fig.add_subplot(gs[0, 1])
@@ -522,21 +550,29 @@ def module_dot_plot(
     ax_sc.set_xlim(-0.5, len(ordered_modules) - 0.5)
     ax_sc.set_ylim(-0.5, len(ordered_groups) - 0.5)
     ax_sc.set_xticks(range(len(ordered_modules)))
-    ax_sc.set_xticklabels(ordered_modules, rotation=45, ha='right', fontsize=axis_fontsize)
+    ax_sc.set_xticklabels(ordered_modules, rotation=45, 
+                          ha='right', va='top', rotation_mode='anchor', 
+                          fontsize=axis_fontsize)
     ax_sc.set_yticks(range(len(ordered_groups)))
     ax_sc.set_yticklabels(ordered_groups, fontsize=axis_fontsize)
+    ax_sc.tick_params(axis='both', pad=1) 
     ax_sc.set_xlabel('Module', fontsize=axis_labelsize)
     if not show_dendrogram:
         ax_sc.set_ylabel(groupby, fontsize=axis_labelsize)
 
+    pos = ax_sc.get_position()          
+    pad = 0.02                         
+    cb_x = pos.x1 + pad
+    lg_x = pos.x1 + pad
+
     # 6) Add colorbar
-    cax = fig.add_axes([1.02, 0.5, 0.02, 0.3])
+    cax = fig.add_axes([cb_x, 0.4, 0.02, 0.2])
     cbar = fig.colorbar(sc, cax=cax, orientation='vertical')
     cbar.ax.set_title('Average Expression', fontsize=legend_labelsize, pad=10, loc='left')
     cbar.ax.tick_params(labelsize=legend_fontsize)
 
     # 7) Add size legend
-    lax = fig.add_axes([1.02, 0.1, 0.03, 0.3])
+    lax = fig.add_axes([lg_x, 0.0, 0.1, 0.30])
     lax.axis('off')
     sizes = [25, 50, 75, 100]
     handles = [
@@ -545,13 +581,10 @@ def module_dot_plot(
         for s in sizes
     ]
     labels = [f"{s}%" for s in sizes]
-    lax.legend(
-        handles, labels,
-        loc='upper left', bbox_to_anchor=(0, 1), bbox_transform=lax.transAxes,
-        frameon=False, handletextpad=0.5, handlelength=1.0,
-        labelspacing=0.8, borderaxespad=0, borderpad=0
-    )
-    lax.text(0, 1.02, 'Percent Expressed', transform=lax.transAxes, va='bottom', ha='left', fontsize=legend_labelsize)
+    lax.legend(handles, labels, loc='upper left', frameon=False,
+               handletextpad=0.5, labelspacing=0.8, borderaxespad=0)
+    lax.text(0, 1.0, 'Percent Expressed', transform=lax.transAxes,
+             va='bottom', ha='left', fontsize=legend_labelsize)
 
     # 8) Save figure if requested
     if save_plot_as:
