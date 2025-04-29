@@ -1,6 +1,6 @@
+
 # %%
-# r2版本，使用新的基因选择方案，当2500<基因数<10000时，每次循环采样1/5的基因。
-# 使用SpacGPA对 Xenium Human_Lung_Cancer_FFPE_5K 数据集进行分析
+# 使用SpacGPA对 visium_HD Mouse_Brain_Fixed_Frozen 数据进行分析
 import numpy as np
 import pandas as pd
 import random
@@ -28,26 +28,22 @@ import SpacGPA as sg
 
 # %%
 # 读取空转数据
-adata = sc.read_10x_h5('/dta/ypxu/ST_GGM/Raw_Datasets/Xenium/Human_Lung_Cancer_5K/cell_feature_matrix.h5')
+adata = sc.read_visium("/dta/ypxu/ST_GGM/Raw_Datasets/visium_HD/Mouse_Brain_Fixed_Frozen/binned_outputs/square_016um/",
+                       count_file="filtered_feature_bc_matrix.h5")
 adata.var_names_make_unique()
 adata.var_names = adata.var['gene_ids']
-meta = pd.read_csv('/dta/ypxu/ST_GGM/Raw_Datasets/Xenium/Human_Lung_Cancer_5K/cells.csv.gz')
-adata.obs = meta
-adata.obsm['spatial'] = adata.obs[['x_centroid','y_centroid']].values
 
+sc.pp.normalize_total(adata, target_sum=1e4)
 sc.pp.log1p(adata)
 print(adata.X.shape)
 
 sc.pp.filter_genes(adata,min_cells=10)
 print(adata.X.shape)
 
-sc.pp.filter_cells(adata, min_genes=100)
-print(adata.X.shape)
-
 # %%
 # 使用 GPU 计算GGM，double_precision=False
 ggm = sg.create_ggm(adata,
-                    project_name = "Human_Lung_Cancer_5K", 
+                    project_name = "Mouse_Brain_Fixed",
                     run_mode=2, 
                     double_precision=False,
                     use_chunking=True,
@@ -67,24 +63,30 @@ if cut_pcor < 0.02:
 print("Adjust cutoff pcor:", cut_pcor)
 ggm.adjust_cutoff(pcor_threshold=cut_pcor)
 
+
 # %%
 # 使用改进的mcl聚类识别共表达模块
 start_time = time.time()
 ggm.find_modules(methods='mcl-hub',
                  expansion=2, inflation=2, max_iter=1000, tol=1e-6, pruning_threshold=1e-5,
                  min_module_size=10, topology_filtering=True, 
-                 convert_to_symbols=True, species='human')
+                 convert_to_symbols=False, species='mouse')
 print(f"Time: {time.time() - start_time:.5f} s")
 print(ggm.modules_summary)
-
 
 # %%
 # GO富集分析
 start_time = time.time()
-ggm.go_enrichment_analysis(species='human',padjust_method="BH",pvalue_cutoff=0.05)
+ggm.go_enrichment_analysis(species='mouse',padjust_method="BH",pvalue_cutoff=0.05)
 print(f"Time: {time.time() - start_time:.5f} s")
 print(ggm.go_enrichment)
 
+# %%
+# MP富集分析
+start_time = time.time()
+ggm.mp_enrichment_analysis(species='mouse',padjust_method="BH",pvalue_cutoff=0.05)
+print(f"Time: {time.time() - start_time:.5f} s")
+print(ggm.mp_enrichment)
 
 # %%
 # 打印GGM信息
@@ -93,13 +95,13 @@ ggm
 # %%
 # 保存GGM
 start_time = time.time()
-sg.save_ggm(ggm, "data/Human_Lung_Cancer_5K_r2.ggm.h5")
+sg.save_ggm(ggm, "data/Mouse_Brain_Fixed_Frozen_r2.ggm.h5")
 print(f"Time: {time.time() - start_time:.5f} s")
 
 # %%
 # 读取GGM
 start_time = time.time()
-ggm = sg.load_ggm("data/Human_Lung_Cancer_5K_r2.ggm.h5")
+ggm = sg.load_ggm("data/Mouse_Brain_Fixed_Frozen_r2.ggm.h5")
 print(f"Time: {time.time() - start_time:.5f} s")
 
 # %%
@@ -107,16 +109,15 @@ ggm
 
 # %%
 # 重新读取数据
-adata = sc.read_10x_h5('/dta/ypxu/ST_GGM/Raw_Datasets/Xenium/Human_Lung_Cancer_5K/cell_feature_matrix.h5')
+del adata
+adata = sc.read_visium("/dta/ypxu/ST_GGM/Raw_Datasets/visium_HD/Mouse_Brain_Fixed_Frozen/binned_outputs/square_016um/",
+                       count_file="filtered_feature_bc_matrix.h5")
 adata.var_names_make_unique()
 adata.var_names = adata.var['gene_ids']
-meta = pd.read_csv('/dta/ypxu/ST_GGM/Raw_Datasets/Xenium/Human_Lung_Cancer_5K/cells.csv.gz')
-adata.obs = meta
-adata.obsm['spatial'] = adata.obs[['x_centroid','y_centroid']].values
 
+sc.pp.normalize_total(adata, target_sum=1e4)
 sc.pp.log1p(adata)
 print(adata.X.shape)
-
 
 # %%
 # 计算模块的加权表达值
@@ -142,8 +143,7 @@ gc.collect()
 # %%
 # 使用leiden聚类和louvain聚类基于模块表达矩阵归一化矩阵进行聚类
 start_time = time.time()
-sc.pp.neighbors(adata, 
-                use_rep='module_expression_scaled',
+sc.pp.neighbors(adata, use_rep='module_expression_scaled',
                 n_pcs=adata.obsm['module_expression_scaled'].shape[1])
 sc.tl.leiden(adata, resolution=0.5, key_added='leiden_0.5_ggm')
 sc.tl.leiden(adata, resolution=1, key_added='leiden_1_ggm')
@@ -153,15 +153,16 @@ print(f"Time: {time.time() - start_time:.5f} s")
 
 
 # %%
-# 可视化并保存聚类结果
-sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="leiden_0.5_ggm", 
-              save="/Human_Lung_Cancer_5K_ggm_modules_leiden_0.5_r2.pdf",show=True)
-sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="leiden_1_ggm",
-                save="/Human_Lung_Cancer_5K_ggm_modules_leiden_1_r2.pdf",show=True)
-sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="louvan_0.5_ggm",
-                save="/Human_Lung_Cancer_5K_ggm_modules_louvan_0.5_r2.pdf",show=True)
-sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="louvan_1_ggm",
-                save="/Human_Lung_Cancer_5K_ggm_modules_louvan_1_r2.pdf",show=True)
+# 可视化并保存可视化结果
+sc.pl.spatial(adata, size=1.2, alpha_img=0.5, title= "", frameon = False, color="leiden_0.5_ggm", 
+              save="/Mouse_Brain_Fixed_Frozen_ggm_modules_leiden_0.5_r2.pdf",show=True)
+sc.pl.spatial(adata, size=1.2, alpha_img=0.5, title= "", frameon = False, color="leiden_1_ggm",
+                save="/Mouse_Brain_Fixed_Frozen_ggm_modules_leiden_1_r2.pdf",show=True)
+sc.pl.spatial(adata, size=1.2, alpha_img=0.5, title= "", frameon = False, color="louvan_0.5_ggm",
+                save="/Mouse_Brain_Fixed_Frozen_ggm_modules_louvan_0.5_r2.pdf",show=True)
+sc.pl.spatial(adata, size=1.2, alpha_img=0.5, title= "", frameon = False, color="louvan_1_ggm",
+                save="/Mouse_Brain_Fixed_Frozen_ggm_modules_louvan_1_r2.pdf",show=True)
+
 
 
 # %%
@@ -180,9 +181,12 @@ sg.calculate_gmm_annotations(adata,
 print(f"Time: {time.time() - start_time:.5f} s")
 print(adata.uns['module_stats'])
 
+# %%
+adata.obs.head()
 
 # %%
-adata.uns['module_stats'].to_csv("data/Human_Lung_Cancer_5K_ggm_module_stats_r2.csv")
+adata.uns['module_stats'].to_csv("data/Mouse_Brain_Fixed_Frozen_ggm_module_stats_r2.csv")
+
 
 # %%
 # 平滑注释
@@ -214,6 +218,7 @@ sg.classify_modules(adata,
                     anno_overlap_threshold=0.5)
 adata.uns['module_filtering']['type_tag'].value_counts()
 
+
 # %%
 # 计算并可视化模块之间的相似性
 mod_cor = sg.calculating_module_similarity(adata,
@@ -233,7 +238,7 @@ mod_cor = sg.calculating_module_similarity(adata,
                                 legend_fontsize=12,
                                 legend_labelsize=15,
                                 cmap_name='coolwarm',               # must be one of the 24 diverging maps
-                                save_plot_as="figures/Human_Lung_Cancer_5K_module_corr_similarity_r2.pdf"  
+                                save_plot_as="figures/Mouse_Brain_Fixed_Frozen_module_corr_similarity_r2.pdf"  
                                 )
 
 # %%
@@ -255,9 +260,8 @@ sg.module_dot_plot(
     axis_labelsize=12,
     axis_fontsize=10,
     return_df=False,
-    save_plot_as="figures/Human_Lung_Cancer_5K_leiden_0_5_ggm_module_dotplot_r2.pdf" 
+    save_plot_as="figures/Mouse_Brain_Fixed_Frozen_leiden_0_5_ggm_module_dotplot_r2.pdf" 
 )
-
 
 
 
@@ -324,44 +328,45 @@ sg.integrate_annotations_noweight(adata,
                         neighbor_similarity_ratio=0,
                         )
 
-
 # %%
 # 保存注释结果
-adata.obs.to_csv("data/Human_Lung_Cancer_5K_ggm_annotation_r2.csv")
-
-
-# %%
-# 注释结果可视化并保存可视化结果
-sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="ggm_annotation", palette= adata.uns['module_colors'],
-              save="/Human_Lung_Cancer_5K_All_modules_annotation_r2.pdf",show=True)
-sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="ggm_annotation_filtered", palette= adata.uns['module_colors'],
-                save="/Human_Lung_Cancer_5K_Filtered_modules_annotation_r2.pdf",show=True)
-sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="ggm_annotation_no_activity", palette= adata.uns['module_colors'],
-                save="/Human_Lung_Cancer_5K_No_activity_modules_annotation_r2.pdf",show=True)
-sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="ggm_annotation_no_spatial", palette= adata.uns['module_colors'],
-                save="/Human_Lung_Cancer_5K_All_modules_annotation_no_spatial_r2.pdf",show=True)
-sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="ggm_annotation_filtered_no_spatial", palette= adata.uns['module_colors'],
-                save="/Human_Lung_Cancer_5K_Filtered_modules_annotation_no_spatial_r2.pdf",show=True)
-sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="ggm_annotation_no_activity_no_spatial", palette= adata.uns['module_colors'],
-                save="/Human_Lung_Cancer_5K_No_activity_modules_annotation_no_spatial_r2.pdf",show=True)
+adata.obs.to_csv("data/Mouse_Brain_Fixed_Frozen_ggm_annotation_r2.csv")
 
 
 # %%
 # 保存adata
-adata.write("data/Human_Lung_Cancer_5K_ggm_anno_r2.h5ad")
+adata.write("data/Mouse_Brain_Fixed_Frozen_ggm_anno_r2.h5ad")
+
+
+
+# %%
+# 注释结果可视化并保存可视化结果
+sc.pl.spatial(adata, size=1.2, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation", palette= adata.uns['module_colors'],
+              save="/Mouse_Brain_Fixed_Frozen_All_modules_annotation_r2.pdf",show=True)
+sc.pl.spatial(adata, size=1.2, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_filtered", palette= adata.uns['module_colors'],
+                save="/Mouse_Brain_Fixed_Frozen_Filtered_modules_annotation_r2.pdf",show=True)
+sc.pl.spatial(adata, size=1.2, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_no_activity", palette= adata.uns['module_colors'],
+                save="/Mouse_Brain_Fixed_Frozen_No_activity_modules_annotation_r2.pdf",show=True)
+sc.pl.spatial(adata, size=1.2, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_no_spatial", palette= adata.uns['module_colors'],
+                save="/Mouse_Brain_Fixed_Frozen_All_modules_annotation_no_spatial_r2.pdf",show=True)
+sc.pl.spatial(adata, size=1.2, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_filtered_no_spatial", palette= adata.uns['module_colors'],
+                save="/Mouse_Brain_Fixed_Frozen_Filtered_modules_annotation_no_spatial_r2.pdf",show=True)
+sc.pl.spatial(adata, size=1.2, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_no_activity_no_spatial", palette= adata.uns['module_colors'],
+                save="/Mouse_Brain_Fixed_Frozen_No_activity_modules_annotation_no_spatial_r2.pdf",show=True)
+
 
 
 # %%
 # 逐个可视化各个模块的注释结果
 anno_modules = adata.uns['module_stats']['module_id']
-pdf_file = "figures/xenium/Human_Lung_Cancer_5K_all_modules_Anno_r2.pdf"
+pdf_file = "figures/visium_HD/Mouse_Brain_Fixed_Frozen_all_modules_Anno_r2.pdf"
 c = canvas.Canvas(pdf_file, pagesize=letter)
 image_files = []
 for module in anno_modules:
     plt.figure()    
-    sc.pl.spatial(adata, spot_size=12, frameon = False, color_map="Reds", 
+    sc.pl.spatial(adata, size=1.2, alpha_img=0.5, frameon = False, color_map="Reds", 
                   color=[f"{module}_exp",f"{module}_exp_trim",f"{module}_anno",f"{module}_anno_smooth"],show=False)
-    show_png_file = f"figures/xenium/Human_Lung_Cancer_5K_{module}_Anno_r2.png"
+    show_png_file = f"figures/visium_HD/Mouse_Brain_Fixed_Frozen_{module}_Anno_r2.png"
     plt.savefig(show_png_file, format="png", dpi=300, bbox_inches="tight")
     plt.close()
     image_files.append(show_png_file)
@@ -373,7 +378,7 @@ for image_file in image_files:
     c.showPage()
 
 
-# Save the PDF 
+# Save the PDF    
 c.save()    
 
 # %%
