@@ -403,9 +403,9 @@ def set_selects(gene_num):
                          
     Conditions (in strict order):
         1. If gene_num is less than 500, use all genes and set target_sampling_count to 1.
-        2. If gene_num is in the range [500, 5000), set selected_num = 500 and use the user-specified target_sampling_count.
-        3. If gene_num is in the range [5000, 20000] (inclusive), set selected_num to ceil(gene_num / 10) and use the user-specified target_sampling_count.
-        4. If gene_num is greater than 20000, set selected_num = 2000 and use the user-specified target_sampling_count.
+        2. If gene_num is in the range [500, 2500), set selected_num = 500 and use the user-specified target_sampling_count.
+        3. If gene_num is in the range [2500, 10000), set selected_num to ceil(gene_num / 5) and use the user-specified target_sampling_count.
+        4. If gene_num is greater than 10000, set selected_num = 2000 and use the user-specified target_sampling_count.
     """
     if gene_num <= 0:
         raise ValueError("gene_num must be greater than 0.")
@@ -413,13 +413,13 @@ def set_selects(gene_num):
     # Condition 1: When gene_num is less than 500
     elif gene_num < 500:
         selected_num = gene_num
-    # Condition 2: When gene_num is between 500 and 5000
-    elif gene_num < 5000:
+    # Condition 2: When gene_num is between 500 and 2500
+    elif gene_num < 2500:
         selected_num = 500
-    # Condition 3: When gene_num is between 5000 and 20000 (inclusive)
-    elif gene_num <= 20000:
-        selected_num = math.ceil(gene_num / 10)
-    # Condition 4: When gene_num is greater than 20000
+    # Condition 3: When gene_num is between 2500 and 10000 (inclusive)
+    elif gene_num < 10000:
+        selected_num = math.ceil(gene_num / 5)
+    # Condition 4: When gene_num is greater than 10000
     else:
         selected_num = 2000
 
@@ -450,3 +450,43 @@ def estimate_rounds(gene_num, selected_num, target_sampling_count):
     return round_num
 
 
+
+
+
+
+############################################################################################################
+# Old functions
+# set_selects_v1
+def set_selects_v1(gene_num):
+    """
+    Automatically determine selected_num based on the total number of genes (gene_num)
+
+    Parameters:
+        gene_num (int): Total number of genes in the input dataset (must be greater than 0).
+        
+    Returns:
+        selected_num (int): The number of genes selected in each iteration to calculate the partial correlation coefficient
+                         
+    Conditions (in strict order):
+        1. If gene_num is less than 500, use all genes and set target_sampling_count to 1.
+        2. If gene_num is in the range [500, 5000), set selected_num = 500 and use the user-specified target_sampling_count.
+        3. If gene_num is in the range [5000, 20000] (inclusive), set selected_num to ceil(gene_num / 10) and use the user-specified target_sampling_count.
+        4. If gene_num is greater than 20000, set selected_num = 2000 and use the user-specified target_sampling_count.
+    """
+    if gene_num <= 0:
+        raise ValueError("gene_num must be greater than 0.")
+
+    # Condition 1: When gene_num is less than 500
+    elif gene_num < 500:
+        selected_num = gene_num
+    # Condition 2: When gene_num is between 500 and 5000
+    elif gene_num < 5000:
+        selected_num = 500
+    # Condition 3: When gene_num is between 5000 and 20000 (inclusive)
+    elif gene_num <= 20000:
+        selected_num = math.ceil(gene_num / 10)
+    # Condition 4: When gene_num is greater than 20000
+    else:
+        selected_num = 2000
+
+    return selected_num
