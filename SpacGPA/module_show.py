@@ -2,6 +2,7 @@ import warnings
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import networkx as nx
 import seaborn as sns
 import itertools
 from scipy.cluster.hierarchy import linkage, dendrogram, leaves_list
@@ -98,6 +99,256 @@ def get_module_anno(self, module_id, add_enrich_info=True, top_n=None, term_id=N
             module_anno = module_anno.drop(columns=remove_id)  
 
     return module_anno
+
+# module_network_plot
+def module_network_plot(
+    nodes_edges: pd.DataFrame,
+    nodes_anno: pd.DataFrame,
+    show_nodes=30,
+    highlight_anno: str = None,
+    label_show: str = 'all',
+    use_symbol: bool = True,
+    
+    seed: int = 42,
+    weight_power: float = 1.0,
+    layout: str = 'spring',
+    layout_k: float = 1.0,
+    layout_iterations: int = 50,
+    margin: float = 0.1,
+    
+    line_style: str = '-',
+    line_width: float = 1.0,
+    line_alpha: float = 0.3,
+    line_color: str = 'grey',
+    
+    node_border_width: float = 0,
+    node_color: str = 'skyblue',
+    node_size: int = 100,
+    node_alpha: float = 0.8,
+    highlight_node_color: str = 'salmon',
+    highlight_node_size: int = 100,
+    highlight_node_alpha: float = 0.8,
+    
+    label_color: str = 'black',
+    label_font_size: int = 10,
+    label_font_weight: str = 'normal',
+    label_alpha: float = 1.0,
+    highlight_label_color: str = 'black',
+    highlight_label_font_size: int = 10,
+    highlight_label_font_weight: str = 'bold',
+    highlight_label_alpha: float = 1.0,
+    
+    plot: bool = True,
+    save_plot_as: str = None,
+    save_network_as: str = None
+) -> nx.Graph:
+    """
+    Construct and optionally render a gene co-expression network.
+
+    Builds a NetworkX graph from pairwise partial correlations and gene annotations,
+    computes node positions via a chosen layout, and renders the network with
+    fully customizable styling. Optionally exports the plot to PDF/PNG and saves
+    the graph in GraphML format for Cytoscape.
+
+    Parameters
+    ----------
+    nodes_edges : pd.DataFrame
+        DataFrame with columns ['GeneA', 'GeneB', 'Pcor'], defining edges and base weights.
+    nodes_anno : pd.DataFrame
+        DataFrame with at least ['gene', 'rank']; may include 'symbol' and other annotation
+        columns for highlighting.
+    show_nodes : int or 'all', default=30
+        Number of top-ranked genes to include, or 'all' to include every gene.
+    highlight_anno : str or None, default=None
+        Column in nodes_anno whose non-null entries mark highlighted nodes.
+    label_show : {'all', 'highlight', 'none'}, default='all'
+        Which nodes to label: all nodes, only highlighted nodes, or none.
+    use_symbol : bool, default=True
+        If True and 'symbol' exists in nodes_anno, use it for labels instead of gene IDs.
+    seed : int, default=42
+        Random seed for reproducible layout.
+    weight_power : float, default=1.0
+        Exponent applied to Pcor when computing edge weight: weight = Pcor ** weight_power.
+    layout : {'spring', 'circular', 'kamada_kawai', 'spectral'}, default='spring'
+        Layout algorithm for node positioning.
+    layout_k : float, default=1.0
+        Optimal node distance for spring layout; smaller values yield a more compact graph.
+    layout_iterations : int, default=50
+        Number of iterations for the spring layout algorithm.
+    margin : float, default=0.1
+        Fractional margin around the figure to prevent clipping.
+    line_style : str, default='-'
+        Line style for edges.
+    line_width : float, default=1.0
+        Line width for edges.
+    line_alpha : float, default=0.3
+        Opacity of edges (0.0 to 1.0).
+    line_color : str, default='grey'
+        Color of edges.
+    node_border_width : float, default=0
+        Width of node borders.
+    node_color : str, default='skyblue'
+        Color of non-highlighted nodes.
+    node_size : int, default=100
+        Size of non-highlighted nodes.
+    node_alpha : float, default=0.8
+        Opacity of non-highlighted nodes.
+    highlight_node_color : str, default='salmon'
+        Color of highlighted nodes.
+    highlight_node_size : int, default=100
+        Size of highlighted nodes.
+    highlight_node_alpha : float, default=0.8
+        Opacity of highlighted nodes.
+    label_color : str, default='black'
+        Color of non-highlighted node labels.
+    label_font_size : int, default=10
+        Font size for non-highlighted node labels.
+    label_font_weight : str, default='normal'
+        Font weight for non-highlighted node labels.
+    label_alpha : float, default=1.0
+        Opacity of non-highlighted node labels.
+    highlight_label_color : str, default='black'
+        Color of highlighted node labels.
+    highlight_label_font_size : int, default=10
+        Font size for highlighted node labels.
+    highlight_label_font_weight : str, default='bold'
+        Font weight for highlighted node labels.
+    highlight_label_alpha : float, default=1.0
+        Opacity of highlighted node labels.
+    plot : bool, default=True
+        If True, display the network plot.
+    save_plot_as : str or None, default=None
+        File path ending in .pdf or .png to save the rendered plot.
+    save_network_as : str or None, default=None
+        File path to export the graph in GraphML format.
+
+    Returns
+    -------
+    networkx.Graph
+        The constructed co-expression network graph.
+    """
+    # Prepare node labels (use 'symbol' if available and requested).
+    has_symbol = use_symbol and 'symbol' in nodes_anno.columns
+    label_map = {
+        row['gene']: row['symbol'] if has_symbol and pd.notnull(row['symbol']) else row['gene']
+        for _, row in nodes_anno.iterrows()
+    }
+
+    # Select top genes by rank or include all.
+    if show_nodes != 'all':
+        top_n = min(int(show_nodes), len(nodes_anno))
+        genes = nodes_anno.sort_values('rank').iloc[:top_n]['gene'].tolist()
+    else:
+        genes = nodes_anno['gene'].tolist()
+
+    # Identify highlighted genes.
+    highlight_set = set()
+    if highlight_anno and highlight_anno in nodes_anno.columns:
+        highlight_set = set(nodes_anno.loc[nodes_anno[highlight_anno].notnull(), 'gene'])
+
+    # Build the NetworkX graph and assign edge weights.
+    G = nx.Graph()
+    for gene in genes:
+        G.add_node(gene, highlight=(gene in highlight_set))
+    sub = nodes_edges[nodes_edges['GeneA'].isin(genes) & nodes_edges['GeneB'].isin(genes)]
+    for _, row in sub.iterrows():
+        weight = row.get('Pcor', 1.0) ** weight_power
+        G.add_edge(row['GeneA'], row['GeneB'], weight=weight)
+
+    # Export graph if requested.
+    if save_network_as:
+        nx.write_graphml(G, save_network_as)
+
+    # Compute node positions according to chosen layout.
+    if layout == 'spring':
+        pos = nx.spring_layout(G, weight='weight', k=layout_k,
+                               iterations=layout_iterations, seed=seed)
+    elif layout == 'circular':
+        pos = nx.circular_layout(G)
+    elif layout == 'kamada_kawai':
+        pos = nx.kamada_kawai_layout(G, weight='weight')
+    elif layout == 'spectral':
+        pos = nx.spectral_layout(G)
+    else:
+        pos = nx.spring_layout(G, weight='weight', k=layout_k,
+                               iterations=layout_iterations, seed=seed)
+
+    # Draw and optionally save the plot.
+    if plot or save_plot_as:
+        fig = plt.figure(figsize=(8, 8))
+
+        # Draw edges.
+        nx.draw_networkx_edges(
+            G, pos,
+            style=line_style,
+            width=line_width,
+            alpha=line_alpha,
+            edge_color=line_color
+        )
+
+        # Draw nodes.
+        normal = [n for n, d in G.nodes(data=True) if not d['highlight']]
+        highl = [n for n, d in G.nodes(data=True) if d['highlight']]
+        nx.draw_networkx_nodes(
+            G, pos, nodelist=normal,
+            node_size=node_size,
+            node_color=node_color,
+            edgecolors='k',
+            linewidths=node_border_width,
+            alpha=node_alpha
+        )
+        if highlight_set:
+            nx.draw_networkx_nodes(
+                G, pos, nodelist=highl,
+                node_size=highlight_node_size,
+                node_color=highlight_node_color,
+                edgecolors='k',
+                linewidths=node_border_width,
+                alpha=highlight_node_alpha
+            )
+
+        # Draw labels.
+        labels_normal = {}
+        labels_highlight = {}
+        if label_show == 'all':
+            labels_normal = {n: label_map[n] for n in normal}
+            labels_highlight = {n: label_map[n] for n in highl}
+        elif label_show == 'highlight':
+            labels_highlight = {n: label_map[n] for n in highl}
+
+        if labels_normal:
+            nx.draw_networkx_labels(
+                G, pos, labels=labels_normal,
+                font_size=label_font_size,
+                font_weight=label_font_weight,
+                font_color=label_color,
+                alpha=label_alpha
+            )
+        if labels_highlight:
+            nx.draw_networkx_labels(
+                G, pos, labels=labels_highlight,
+                font_size=highlight_label_font_size,
+                font_weight=highlight_label_font_weight,
+                font_color=highlight_label_color,
+                alpha=highlight_label_alpha
+            )
+
+        plt.margins(margin)
+        plt.axis('off')
+        plt.tight_layout(pad=margin)
+
+        # Save figure if requested.
+        if save_plot_as:
+            ext = save_plot_as.split('.')[-1].lower()
+            if ext not in ['pdf', 'png']:
+                raise ValueError("save_plot_as must end with .pdf or .png")
+            dpi = 300 if ext == 'png' else None
+            fig.savefig(save_plot_as, dpi=dpi, bbox_inches='tight')
+
+        if plot:
+            plt.show()
+
+    return G
 
 
 # calculating_module_similarity 
