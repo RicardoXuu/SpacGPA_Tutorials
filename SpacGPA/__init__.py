@@ -3,7 +3,8 @@ from .create_ggm_multi import create_ggm_multi
 from .calculate_pcors import calculate_pcors_pytorch, estimate_rounds
 from .find_modules import run_mcl, run_louvain, run_mcl_original
 from .enrich_analysis import go_enrichment_analysis, mp_enrichment_analysis, get_GO_annoinfo
-from .module_show import get_module_edges, get_module_anno, module_network_plot, calculating_module_similarity, module_dot_plot
+from .module_show import get_module_edges, get_module_anno, module_network_plot, module_go_enrichment_plot, module_mp_enrichment_plot
+from .module_show import calculating_module_similarity, module_dot_plot
 from .anno_cells import assign_module_colors, calculate_module_expression, calculate_gmm_annotations, smooth_annotations
 from .anno_cells import annotate_with_ggm, integrate_annotations 
 from .anno_cells import smooth_annotations_noadd, integrate_annotations_noweight, integrate_annotations_old
@@ -17,7 +18,8 @@ __all__ = [
     'calculate_pcors_pytorch', 'estimate_rounds',
     'run_mcl', 'run_louvain', 'run_mcl_original',
     'go_enrichment_analysis', 'mp_enrichment_analysis', 'get_GO_annoinfo',
-    'get_module_edges', 'get_module_anno', 'module_network_plot', 'calculating_module_similarity', 'module_dot_plot',
+    'get_module_edges', 'get_module_anno', 'module_network_plot',  'module_go_enrichment_plot', 'module_mp_enrichment_plot',
+    'calculating_module_similarity', 'module_dot_plot',
     'assign_module_colors', 'calculate_module_expression', 'calculate_gmm_annotations', 'smooth_annotations', 
     'annotate_with_ggm', 'integrate_annotations', 
     'find_best_inflation', 'classify_modules', 'calculate_module_overlap',
