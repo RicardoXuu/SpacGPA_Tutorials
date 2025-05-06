@@ -13,7 +13,6 @@ import sys
 import random
 from sklearn.preprocessing import StandardScaler
 from sklearn.mixture import GaussianMixture
-from scipy.spatial.distance import pdist
 from scipy.stats import skew, rankdata
 from igraph import Graph
 from sklearn.neighbors import NearestNeighbors, KernelDensity
@@ -468,7 +467,6 @@ def calculate_gmm_annotations(adata,
         - module_moran_I: Global Moran's I computed on the module expression (all cells) (if calculate_moran True).
         - positive_moran_I: Moran's I computed on module expression for cells annotated as 1 (if calculate_moran True).
         - negative_moran_I: Moran's I computed on module expression for cells annotated as 0 (if calculate_moran True).
-        - positive_mean_distance: Average pairwise spatial distance among cells annotated as 1 (if calculate_moran True).
         - n_components: Number of components in the GMM.
         - final_components: Number of components after fallback.
         - threshold: Threshold for calling a cell positive.
@@ -476,26 +474,6 @@ def calculate_gmm_annotations(adata,
         - main_component: Index of the main component.
         - error_info: Error message if status is 'failed'.
         - top_go_terms: Top GO terms associated with the module.
-
-    Parameters:
-      adata: AnnData object.
-      ggm_key: Key for the GGM object in adata.uns['ggm_keys'].
-      modules_used: List of module IDs to process; if None, use all modules in adata.uns[mod_info_key].
-      modules_excluded: List of module IDs to exclude.
-      calculate_moran: If True, compute Moran's I and other spatial statistics.
-                       For Big Spatial Transcriptomics(eg. 10X Visium_HD(2um), etc.), Set to False to avoid memory issues.
-      embedding_key: Key in adata.obsm containing spatial coordinates.
-      k_neighbors: Number of nearest neighbors for spatial weight matrix.
-      max_iter: Maximum iterations for GMM.
-      prob_threshold: Probability threshold for calling a cell positive.
-      min_samples: Minimum number of nonzero samples required.
-      n_components: Number of GMM components.
-      enable_fallback: Whether to fallback to a 2-component model on failure.
-      random_state: Random seed.
-    
-    Returns:
-      Updates adata.obs with annotation columns (categorical, with suffix '_anno'),
-      and stores module-level statistics in adata.uns[mod_stats_key].
     """
 
     # Retrieve keys from adata.uns['ggm_keys']
@@ -589,7 +567,6 @@ def calculate_gmm_annotations(adata,
             'components': [],
             'error_info': 'None',
             'module_moran_I': np.nan,
-            'positive_mean_distance': np.nan,
             'positive_moran_I': np.nan,
             'negative_moran_I': np.nan,
             'skew': np.nan,
@@ -650,21 +627,12 @@ def calculate_gmm_annotations(adata,
                 pos_expr_masked = np.where(module_annotation == 1, expr_values, 0)
                 stats['positive_moran_I'] = compute_moran(pos_expr_masked, W)
                 
-                full_indices = np.where(non_zero_mask)[0]
-                pos_idx = full_indices[anno_non_zero == 1]
-                if len(pos_idx) > 1:
-                    pos_coords = coords[pos_idx, :]
-                    stats['positive_mean_distance'] = float(np.mean(pdist(pos_coords)))
-                else:
-                    stats['positive_mean_distance'] = np.nan
-                
                 neg_expr_masked = np.where(module_annotation == 0, expr_values, 0)
                 stats['negative_moran_I'] = compute_moran(neg_expr_masked, W)
             else:
                 stats['module_moran_I'] = np.nan
                 stats['positive_moran_I'] = np.nan
                 stats['negative_moran_I'] = np.nan
-                stats['positive_mean_distance'] = np.nan
             
             stats['skew'] = float(skew(non_zero_expr))
             
@@ -693,7 +661,6 @@ def calculate_gmm_annotations(adata,
                 'anno_one': 0,
                 'anno_zero': expr_values.size if 'expr_values' in locals() else 0,
                 'module_moran_I': np.nan,
-                'positive_mean_distance': np.nan,
                 'positive_moran_I': np.nan,
                 'negative_moran_I': np.nan,
                 'skew': np.nan,
@@ -739,20 +706,12 @@ def calculate_gmm_annotations(adata,
                             stats['module_moran_I'] = fallback_mod_I
                             pos_expr_masked = np.where(fallback_annotation == 1, expr_values, 0)
                             stats['positive_moran_I'] = compute_moran(pos_expr_masked, W)
-                            full_indices = np.where(non_zero_mask)[0]
-                            pos_idx = full_indices[anno_non_zero == 1]
-                            if len(pos_idx) > 1:
-                                pos_coords = coords[pos_idx, :]
-                                stats['positive_mean_distance'] = float(np.mean(pdist(pos_coords)))
-                            else:
-                                stats['positive_mean_distance'] = np.nan
                             neg_expr_masked = np.where(fallback_annotation == 0, expr_values, 0)
                             stats['negative_moran_I'] = compute_moran(neg_expr_masked, W)
                         else:
                             stats['module_moran_I'] = np.nan
                             stats['positive_moran_I'] = np.nan
                             stats['negative_moran_I'] = np.nan
-                            stats['positive_mean_distance'] = np.nan
                         stats['skew'] = float(skew(non_zero_expr))
                         if len(non_zero_expr) > 0:
                             top_n = max(1, int(len(non_zero_expr) * 0.01))
@@ -819,13 +778,13 @@ def calculate_gmm_annotations(adata,
         stats_records_df["top_go_terms"] = stats_records_df["module_id"].apply(concat_go_terms)
         new_order = [
             'module_id', 'status', 'anno_one', 'anno_zero', 'top_go_terms', 'skew', 'top1pct_ratio', 
-            'module_moran_I', 'positive_moran_I', 'negative_moran_I', 'positive_mean_distance','effect_size',
+            'module_moran_I', 'positive_moran_I', 'negative_moran_I', 'effect_size',
             'n_components', 'final_components','threshold', 'components', 'main_component', 'error_info']
         stats_records_df = stats_records_df[new_order]
     else:
         new_order = [
             'module_id', 'status', 'anno_one', 'anno_zero', 'skew', 'top1pct_ratio',
-            'module_moran_I', 'positive_moran_I', 'negative_moran_I', 'positive_mean_distance','effect_size',
+            'module_moran_I', 'positive_moran_I', 'negative_moran_I', 'effect_size',
             'n_components', 'final_components','threshold', 'components', 'main_component', 'error_info']
         stats_records_df = stats_records_df[new_order]
     
@@ -844,6 +803,7 @@ def calculate_gmm_annotations(adata,
         adata.uns[mod_stats_key] = existing_stats
     else:
         adata.uns[mod_stats_key] = stats_records_df
+
         
 
 # smooth_annotations

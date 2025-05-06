@@ -152,9 +152,9 @@ sc.pp.neighbors(adata,
                 use_rep='module_expression_scaled',
                 n_pcs=adata.obsm['module_expression_scaled'].shape[1])
 sc.tl.leiden(adata, resolution=0.5, key_added='leiden_0.5_ggm')
-sc.tl.leiden(adata, resolution=1, key_added='leiden_1_ggm')
+#sc.tl.leiden(adata, resolution=1, key_added='leiden_1_ggm')
 sc.tl.louvain(adata, resolution=0.5, key_added='louvan_0.5_ggm')
-sc.tl.louvain(adata, resolution=1, key_added='louvan_1_ggm')
+#sc.tl.louvain(adata, resolution=1, key_added='louvan_1_ggm')
 print(f"Time: {time.time() - start_time:.5f} s")
 
 
@@ -162,12 +162,12 @@ print(f"Time: {time.time() - start_time:.5f} s")
 # 可视化并保存聚类结果
 sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="leiden_0.5_ggm", 
               save="/Mouse_Pup_5K_ggm_modules_leiden_0.5_r3.pdf",show=True)
-sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="leiden_1_ggm",
-                save="/Mouse_Pup_5K_ggm_modules_leiden_1_r3.pdf",show=True)
+# sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="leiden_1_ggm",
+#                 save="/Mouse_Pup_5K_ggm_modules_leiden_1_r3.pdf",show=True)
 sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="louvan_0.5_ggm",
                 save="/Mouse_Pup_5K_ggm_modules_louvan_0.5_r3.pdf",show=True)
-sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="louvan_1_ggm",
-                save="/Mouse_Pup_5K_ggm_modules_louvan_1_r3.pdf",show=True)
+# sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="louvan_1_ggm",
+#                 save="/Mouse_Pup_5K_ggm_modules_louvan_1_r3.pdf",show=True)
 
 
 # %%

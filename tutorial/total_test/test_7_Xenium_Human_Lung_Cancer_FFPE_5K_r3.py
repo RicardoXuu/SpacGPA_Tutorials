@@ -226,8 +226,8 @@ mod_cor = sg.calculating_module_similarity(adata,
                                 heatmap_metric='correlation',   # 'correlation' or 'jaccard'
                                 fig_height=17,
                                 fig_width=18,
-                                dendrogram_height=0.15,
-                                dendrogram_space=0.08,
+                                dendrogram_height=0.1,
+                                dendrogram_space=0.06,
                                 axis_fontsize=12,
                                 axis_labelsize=15,
                                 legend_fontsize=12,
@@ -247,9 +247,9 @@ sg.module_dot_plot(
     linkage_method='average',
     show_dendrogram = True,
     dendrogram_height = 0.1,
-    dendrogram_space= 0.05,
+    dendrogram_space= 0.04,
     fig_height = 10,
-    fig_width = 15,
+    fig_width = 16,
     dot_max_size=300,
     cmap='Reds',
     axis_labelsize=12,
@@ -329,6 +329,9 @@ sg.integrate_annotations_noweight(adata,
 # 保存注释结果
 adata.obs.to_csv("data/Human_Lung_Cancer_5K_ggm_annotation_r3.csv")
 
+# %%
+# 保存adata
+adata.write("data/Human_Lung_Cancer_5K_ggm_anno_r3.h5ad")
 
 # %%
 # 注释结果可视化并保存可视化结果
@@ -344,11 +347,6 @@ sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="ggm_annota
                 save="/Human_Lung_Cancer_5K_Filtered_modules_annotation_no_spatial_r3.pdf",show=True)
 sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="ggm_annotation_no_activity_no_spatial", palette= adata.uns['module_colors'],
                 save="/Human_Lung_Cancer_5K_No_activity_modules_annotation_no_spatial_r3.pdf",show=True)
-
-
-# %%
-# 保存adata
-adata.write("data/Human_Lung_Cancer_5K_ggm_anno_r3.h5ad")
 
 
 # %%
