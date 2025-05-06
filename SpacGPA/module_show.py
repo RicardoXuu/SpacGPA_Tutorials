@@ -7,11 +7,11 @@ import seaborn as sns
 import itertools
 from scipy.cluster.hierarchy import linkage, dendrogram, leaves_list
 from scipy.spatial.distance import squareform
+from matplotlib import ticker
 from matplotlib.colors import ListedColormap
-from typing import List
-from scipy.cluster.hierarchy import linkage, leaves_list, dendrogram
-from scipy.spatial.distance import squareform
+from matplotlib.patches import Rectangle
 from matplotlib.lines import Line2D
+from typing import List
 
 
 # get_module_edges 
@@ -349,6 +349,384 @@ def module_network_plot(
             plt.show()
 
     return G
+
+
+
+def module_go_enrichment_plot(
+    ggm,
+    *,
+    top_n_modules: int = 5,
+    selected_modules = None,
+    module_colors = None,
+    go_per_module: int = 2,
+    genes_per_go: int = 5,
+    bar_height: float = 0.5,
+    row_gap: float = 1.0,
+    text_size: int = 12,
+    label_fontsize: int = 15,
+    tick_fontsize: int = 15,
+    module_col_width: float = 0.05,
+    module_col_alpha: float = 1.0,
+    bar_alpha: float = 0.6,
+    min_rows: int = 2,
+    bottom_gap: float = 0.8,
+    fig_width: float = None,
+    fig_height: float = None,
+    save_plot_as: str = None,
+) -> None:
+    """
+    Plot GO enrichment bars for gene co-expression modules).
+
+    Parameters
+    ----------
+    ggm : object
+        Object containing attributes: 'go_enrichment' (GO results) and modules' (gene co-expression modules).
+    top_n_modules : int, default 5
+        Number of modules to draw if *selected_modules* is None.
+    selected_modules : list[str] | None, default None
+        Explicit list of module IDs to plot. If None, the first
+        *top_n_modules* (sorted numerically by ID) are used.
+    module_colors : dict[str, str] | None, default None
+        Mapping {module_id: hex_color}. If None, a tab20 colormap is used.
+    go_per_module : int, default 2
+        Maximum number of GO terms to display per module.
+    genes_per_go : int, default 5
+        Maximum number of genes to list under each GO term.
+    bar_height : float, default 0.5
+        Height of each horizontal bar.
+    row_gap : float, default 1.0
+        Vertical distance between consecutive GO rows.
+    text_size : int, default 12
+        Font size for GO terms and gene lists.
+    label_fontsize : int, default 15
+        Font size for the X-axis label.
+    tick_fontsize : int, default 15
+        Font size for X-axis ticks.
+    module_col_width : float, default 0.05
+        Fractional width of the left color column.
+    module_col_alpha : float, default 1.0
+        Opacity of the module color blocks.
+    bar_alpha : float, default 0.6
+        Opacity of the bars.
+    min_rows : int, default 2
+        Minimum number of GO rows required to draw the figure.
+    bottom_gap : float, default 0.8
+        Additional space below the lowest row, expressed as a
+        multiple of *row_gap*.
+    fig_width : float or None
+        Figure width in inches; defaults to 11 if None.
+    fig_height : float or None
+        Figure height in inches; computed from data if None.
+    save_plot_as : str or None
+        Path ending in .pdf or .png to save the figure.
+    Returns
+    -------
+    None
+        Opens a matplotlib figure window.
+    """
+     # prepare data
+    go_df = ggm.go_enrichment.rename(
+        columns={"module_id": "module", "go_term": "Description", "pValueAdjusted": "padj"}
+    ).copy()
+    mod_df = ggm.modules.rename(columns={"module_id": "module"}).copy()
+
+    # determine modules
+    if selected_modules:
+        module_list = [m for m in selected_modules if m in go_df["module"].unique()]
+    else:
+        module_list = sorted(go_df["module"].unique(), key=lambda x: int(x[1:]))[:top_n_modules]
+
+    # assign colors
+    if module_colors is None:
+        cmap = plt.get_cmap("tab20")
+        module_colors = {m: cmap(i % cmap.N) for i, m in enumerate(module_list)}
+    for i, m in enumerate(module_list):
+        module_colors.setdefault(m, plt.get_cmap("tab20")(i % 20))
+
+    # gather rows
+    rows = []
+    for m in module_list:
+        subset = go_df[go_df["module"] == m].nsmallest(go_per_module, "padj")
+        if subset.empty:
+            continue
+        for _, rec in subset.iterrows():
+            ens = [g for g in rec["genes_with_go_in_module"].split("/") if g]
+            genes = (
+                mod_df[(mod_df["module"] == m) & (mod_df["gene"].isin(ens))]
+                .sort_values("rank")
+                .head(genes_per_go)["symbol"]
+                .tolist()
+            )
+            rows.append(
+                {
+                    "module": m,
+                    "Description": rec["Description"],
+                    "gene_str": "/".join(genes),
+                    "neglog10q": -np.log10(rec["padj"]),
+                }
+            )
+
+    plot_df = pd.DataFrame(rows)
+    if len(plot_df) < min_rows:
+        raise ValueError(f"Only {len(plot_df)} GO rows (< {min_rows}); aborting.")
+
+    plot_df["module"] = pd.Categorical(plot_df["module"], categories=module_list)
+    plot_df = plot_df.sort_values("module").reset_index(drop=True)
+    plot_df["ypos"] = plot_df.index * row_gap
+
+    # layout
+    default_fig_width = 11
+    data_fig_height = row_gap * len(plot_df) * 1.1
+
+    width = fig_width if fig_width is not None else default_fig_width
+    height = fig_height if fig_height is not None else data_fig_height
+
+    fig = plt.figure(figsize=(width, height))
+    gs = fig.add_gridspec(1, 2, width_ratios=[module_col_width, 1 - module_col_width], wspace=0)
+
+
+    low_lim = -bottom_gap * row_gap
+    high_lim = plot_df["ypos"].max() + row_gap / 2
+
+    # module color bar column
+    ax_left = fig.add_subplot(gs[0, 0])
+    ax_left.set_xlim(0, 1)
+    ax_left.set_ylim(low_lim, high_lim)
+    ax_left.axis("off")
+    for m in module_list:
+        ypos = plot_df[plot_df["module"] == m]["ypos"]
+        if ypos.empty:
+            continue
+        ymin, ymax = ypos.min() - bar_height / 2, ypos.max() + bar_height / 2
+        ax_left.add_patch(
+            Rectangle((0.05, ymin), 0.9, ymax - ymin, facecolor=module_colors[m], alpha=module_col_alpha, lw=0)
+        )
+        ax_left.text(0.5, (ymin + ymax) / 2, m, rotation=90, ha="center", va="center", fontsize=text_size)
+
+    # enrichment bars
+    ax = fig.add_subplot(gs[0, 1])
+    ax.set_ylim(low_lim, high_lim)
+    ax.barh(
+        plot_df["ypos"],
+        plot_df["neglog10q"],
+        left=1.0,
+        height=bar_height,
+        color=[module_colors[m] for m in plot_df["module"]],
+        alpha=bar_alpha,
+    )
+    for _, row in plot_df.iterrows():
+        y = row["ypos"]
+        col = module_colors[row["module"]]
+        ax.text(1.1, y, row["Description"], ha="left", va="center", fontsize=text_size)
+        ax.text(
+            1.1,
+            y - bar_height * 0.7,
+            row["gene_str"],
+            ha="left",
+            va="top",
+            fontsize=text_size,
+            style="italic",
+            color=col,
+        )
+
+    ax.set_yticks([])
+    ax.set_xlabel(r"$-\log_{10}\left(\mathit{P}\mathrm{_{adj}}\right)$",
+                  fontsize=label_fontsize)
+    ax.set_xlim(0, 1.0 + plot_df["neglog10q"].max() * 1.05)
+    ax.tick_params(axis="x", labelsize=tick_fontsize)
+    ax.spines[["right", "top"]].set_visible(False)
+    ax.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
+
+    if save_plot_as:
+        ext = save_plot_as.split(".")[-1].lower()
+        if ext not in ["pdf", "png"]:
+            raise ValueError("save_plot_as must end with .pdf or .png")
+        dpi = 300 if ext == "png" else None
+        fig.savefig(save_plot_as, dpi=dpi, bbox_inches="tight")
+
+    plt.tight_layout()
+    plt.show()
+
+
+
+# module_mp_enrichment_plot
+def module_mp_enrichment_plot(
+    ggm,
+    *,
+    top_n_modules: int = 5,
+    selected_modules=None,
+    module_colors=None,
+    mp_per_module: int = 2,
+    genes_per_mp: int = 5,
+    bar_height: float = 0.5,
+    row_gap: float = 1.0,
+    text_size: int = 12,
+    label_fontsize: int = 15,
+    tick_fontsize: int = 15,
+    module_col_width: float = 0.05,
+    module_col_alpha: float = 1.0,
+    bar_alpha: float = 0.6,
+    min_rows: int = 2,
+    bottom_gap: float = 0.8,
+    fig_width: float = None,
+    fig_height: float = None,
+    save_plot_as: str = None,
+) -> None:
+    """
+    Plot MP-enrichment bars for gene co-expression modules.
+
+    Parameters
+    ----------
+    ggm : object
+        Must have attributes `mp_enrichment` and `modules` (both DataFrames).
+    top_n_modules : int
+        Number of modules to draw if selected_modules is None.
+    selected_modules : list or None
+        Explicit list of module IDs to plot.
+    module_colors : dict or None
+        Mapping module -> color; generated if None.
+    mp_per_module : int
+        Maximum MP terms per module.
+    genes_per_mp : int
+        Number of genes listed under each MP term.
+    bar_height : float
+        Height of each horizontal bar.
+    row_gap : float
+        Vertical spacing between rows.
+    text_size : int
+        Font size for term labels and gene lists.
+    label_fontsize : int
+        Font size for the x-axis label.
+    tick_fontsize : int
+        Font size for x-axis ticks.
+    module_col_width : float
+        Fractional width of the left color column.
+    module_col_alpha : float
+        Opacity of the module color blocks.
+    bar_alpha : float
+        Opacity of the bars.
+    min_rows : int
+        Minimum number of rows required to plot.
+    bottom_gap : float
+        Extra space below the lowest row (multiple of row_gap).
+    fig_width : float or None
+        Figure width in inches; defaults to 11.
+    fig_height : float or None
+        Figure height in inches; computed from data if None.
+    save_plot_as : str or None
+        Path ending in .pdf or .png to save the figure.
+    """
+    # prepare data
+    mp_df = ggm.mp_enrichment.rename(
+        columns={"module_id": "module", "mp_term": "Description", "pValueAdjusted": "padj"}
+    ).copy()
+    mod_df = ggm.modules.rename(columns={"module_id": "module"}).copy()
+
+    # select modules
+    if selected_modules:
+        module_list = [m for m in selected_modules if m in mp_df["module"].unique()]
+    else:
+        module_list = sorted(mp_df["module"].unique(), key=lambda x: int(x[1:]))[:top_n_modules]
+
+    # assign colors
+    if module_colors is None:
+        cmap = plt.get_cmap("tab20")
+        module_colors = {m: cmap(i % cmap.N) for i, m in enumerate(module_list)}
+    for i, m in enumerate(module_list):
+        module_colors.setdefault(m, plt.get_cmap("tab20")(i % 20))
+
+    # gather rows
+    rows = []
+    for m in module_list:
+        subset = mp_df[mp_df["module"] == m].nsmallest(mp_per_module, "padj")
+        if subset.empty:
+            continue
+        for _, rec in subset.iterrows():
+            ens = [g for g in rec["genes_with_mp_in_module"].split("/") if g]
+            genes = (
+                mod_df[(mod_df["module"] == m) & (mod_df["gene"].isin(ens))]
+                .sort_values("rank")
+                .head(genes_per_mp)["symbol"]
+                .tolist()
+            )
+            rows.append({
+                "module": m,
+                "Description": rec["Description"],
+                "gene_str": "/".join(genes),
+                "neglog10p": -np.log10(rec["padj"]),
+            })
+
+    plot_df = pd.DataFrame(rows)
+    if len(plot_df) < min_rows:
+        raise ValueError(f"Only {len(plot_df)} MP rows (< {min_rows}); aborting.")
+
+    plot_df["module"] = pd.Categorical(plot_df["module"], categories=module_list)
+    plot_df = plot_df.sort_values("module").reset_index(drop=True)
+    plot_df["ypos"] = plot_df.index * row_gap
+
+    # figure size
+    default_w = 11
+    default_h = row_gap * len(plot_df) * 1.1
+    w = fig_width if fig_width is not None else default_w
+    h = fig_height if fig_height is not None else default_h
+
+    fig = plt.figure(figsize=(w, h))
+    gs = fig.add_gridspec(1, 2,
+                         width_ratios=[module_col_width, 1 - module_col_width],
+                         wspace=0)
+
+    low_lim = -bottom_gap * row_gap
+    high_lim = plot_df["ypos"].max() + row_gap / 2
+
+    # module color column
+    ax0 = fig.add_subplot(gs[0, 0])
+    ax0.set_xlim(0, 1)
+    ax0.set_ylim(low_lim, high_lim)
+    ax0.axis("off")
+    for m in module_list:
+        ys = plot_df[plot_df["module"] == m]["ypos"]
+        if ys.empty:
+            continue
+        ymin, ymax = ys.min() - bar_height/2, ys.max() + bar_height/2
+        ax0.add_patch(Rectangle((0.05, ymin), 0.9, ymax - ymin,
+                                 facecolor=module_colors[m],
+                                 alpha=module_col_alpha, lw=0))
+        ax0.text(0.5, (ymin+ymax)/2, m,
+                 rotation=90, ha="center", va="center", fontsize=text_size)
+
+    # enrichment bars
+    ax1 = fig.add_subplot(gs[0, 1])
+    ax1.set_ylim(low_lim, high_lim)
+    ax1.barh(plot_df["ypos"], plot_df["neglog10p"],
+             left=1.0, height=bar_height,
+             color=[module_colors[m] for m in plot_df["module"]],
+             alpha=bar_alpha)
+    for _, row in plot_df.iterrows():
+        y = row["ypos"]
+        col = module_colors[row["module"]]
+        ax1.text(1.1, y, row["Description"], ha="left", va="center", fontsize=text_size)
+        ax1.text(1.1, y - bar_height*0.7, row["gene_str"],
+                 ha="left", va="top",
+                 fontsize=text_size, style="italic", color=col)
+
+    ax1.set_yticks([])
+    ax1.set_xlabel(r"$-\log_{10}(\mathit{P}\mathrm{_{adj}})$",
+                   fontsize=label_fontsize)
+    ax1.set_xlim(0, 1.0 + plot_df["neglog10p"].max()*1.05)
+    ax1.tick_params(axis="x", labelsize=tick_fontsize)
+    ax1.spines[["right","top"]].set_visible(False)
+    ax1.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
+
+    if save_plot_as:
+        ext = save_plot_as.split(".")[-1].lower()
+        if ext not in ["pdf","png"]:
+            raise ValueError("save_plot_as must end with .pdf or .png")
+        dpi = 300 if ext=="png" else None
+        fig.savefig(save_plot_as, dpi=dpi, bbox_inches="tight")
+
+    plt.tight_layout()
+    plt.show()
+
 
 
 # calculating_module_similarity 
