@@ -230,10 +230,10 @@ mod_cor = sg.calculating_module_similarity(adata,
                                 return_summary=True,
                                 plot_heatmap=True,
                                 heatmap_metric='correlation',   # 'correlation' or 'jaccard'
-                                fig_height=17,
-                                fig_width=18,
-                                dendrogram_height=0.15,
-                                dendrogram_space=0.08,
+                                fig_height=20,
+                                fig_width=21,
+                                dendrogram_height=0.1,
+                                dendrogram_space=0.06,
                                 axis_fontsize=12,
                                 axis_labelsize=15,
                                 legend_fontsize=12,
@@ -254,8 +254,8 @@ sg.module_dot_plot(
     show_dendrogram = True,
     dendrogram_height = 0.1,
     dendrogram_space= 0.05,
-    fig_height = 10,
-    fig_width = 15,
+    fig_height = 12,
+    fig_width = 24,
     dot_max_size=300,
     cmap='Reds',
     axis_labelsize=12,
@@ -337,6 +337,10 @@ adata.obs.to_csv("data/Mouse_Pup_5K_ggm_annotation_r3.csv")
 
 
 # %%
+# 保存adata
+adata.write("data/Mouse_Pup_5K_ggm_anno_r3.h5ad")
+
+# %%
 # 注释结果可视化并保存可视化结果
 sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="ggm_annotation", palette= adata.uns['module_colors'],
               save="/Mouse_Pup_5K_All_modules_annotation_r3.pdf",show=True)
@@ -351,10 +355,6 @@ sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="ggm_annota
 sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="ggm_annotation_no_activity_no_spatial", palette= adata.uns['module_colors'],
                 save="/Mouse_Pup_5K_No_activity_modules_annotation_no_spatial_r3.pdf",show=True)
 
-
-# %%
-# 保存adata
-adata.write("data/Mouse_Pup_5K_ggm_anno_r3.h5ad")
 
 
 # %%

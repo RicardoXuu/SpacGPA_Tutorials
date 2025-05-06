@@ -118,14 +118,14 @@ def module_network_plot(
     
     line_style: str = '-',
     line_width: float = 1.0,
-    line_alpha: float = 0.3,
-    line_color: str = 'grey',
+    line_alpha: float = 0.4,
+    line_color: str = 'lightskyblue',
     
     node_border_width: float = 0,
-    node_color: str = 'skyblue',
+    node_color: str = 'darkgray',
     node_size: int = 100,
     node_alpha: float = 0.8,
-    highlight_node_color: str = 'salmon',
+    highlight_node_color: str = 'darkgray',
     highlight_node_size: int = 100,
     highlight_node_alpha: float = 0.8,
     
@@ -181,19 +181,19 @@ def module_network_plot(
         Line style for edges.
     line_width : float, default=1.0
         Line width for edges.
-    line_alpha : float, default=0.3
+    line_alpha : float, default=0.4
         Opacity of edges (0.0 to 1.0).
-    line_color : str, default='grey'
+    line_color : str, default='lightskyblue'
         Color of edges.
     node_border_width : float, default=0
         Width of node borders.
-    node_color : str, default='skyblue'
+    node_color : str, default='darkgray'
         Color of non-highlighted nodes.
     node_size : int, default=100
         Size of non-highlighted nodes.
     node_alpha : float, default=0.8
         Opacity of non-highlighted nodes.
-    highlight_node_color : str, default='salmon'
+    highlight_node_color : str, default='darkgray'
         Color of highlighted nodes.
     highlight_node_size : int, default=100
         Size of highlighted nodes.
