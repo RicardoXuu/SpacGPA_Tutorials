@@ -471,7 +471,7 @@ def module_go_enrichment_plot(
         raise ValueError(f"Only {len(plot_df)} GO rows (< {min_rows}); aborting.")
 
     plot_df["module"] = pd.Categorical(plot_df["module"], categories=module_list)
-    plot_df = plot_df.sort_values("module").reset_index(drop=True)
+    plot_df = (plot_df.sort_values(["module", "neglog10q"],ascending=[True, False]).reset_index(drop=True))
     plot_df["ypos"] = plot_df.index * row_gap
 
     # layout
@@ -661,7 +661,7 @@ def module_mp_enrichment_plot(
         raise ValueError(f"Only {len(plot_df)} MP rows (< {min_rows}); aborting.")
 
     plot_df["module"] = pd.Categorical(plot_df["module"], categories=module_list)
-    plot_df = plot_df.sort_values("module").reset_index(drop=True)
+    plot_df = (plot_df.sort_values(["module", "neglog10p"],ascending=[True, False]).reset_index(drop=True))
     plot_df["ypos"] = plot_df.index * row_gap
 
     # figure size
