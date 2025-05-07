@@ -4,6 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import networkx as nx
 import seaborn as sns
+import statsmodels.api as sm
 import itertools
 from scipy.cluster.hierarchy import linkage, dendrogram, leaves_list
 from scipy.spatial.distance import squareform
@@ -12,6 +13,8 @@ from matplotlib.colors import ListedColormap
 from matplotlib.patches import Rectangle
 from matplotlib.lines import Line2D
 from typing import List
+from scipy.stats import pearsonr, spearmanr, kendalltau
+from statsmodels.stats.multitest import multipletests
 
 
 # get_module_edges 
@@ -729,8 +732,8 @@ def module_mp_enrichment_plot(
 
 
 
-# calculating_module_similarity 
-def calculating_module_similarity(
+# module_similarity_plot
+def module_similarity_plot(
     adata,
     ggm_key='ggm',
     modules_used=None,
@@ -1228,3 +1231,218 @@ def module_dot_plot(
     if return_df:
         return plot_df
     return
+
+
+
+# module_degree_vs_moran_plot
+def module_degree_vs_moran_plot(
+    data,                       
+    *,
+    ggm_key="ggm",              
+    module_id,                 
+    highlight_genes=None,       
+    show_highlight_genes=True,  
+    show_stats=True,            
+    corr_method="pearson",      
+    adjust_method="fdr_bh",     
+    show_regression=True,       
+    show_module_moran=True,           
+    nodes_size=30,              
+    nodes_color="#A6CEE3",      
+    highlight_color="#E6550D", 
+    axis_label_size=13,
+    tick_label_size=11,
+    text_size=11,
+    line_width=1.2,
+    fig_width=5,
+    fig_height=5,
+    save_plot_as=None,          # 'name.png' or 'name.pdf'; None disables saving
+):
+    """
+    Plot the relationship between gene connectivity (degree) and spatial
+    autocorrelation (gene_moran_I) within a specified module.
+
+    The function accepts either a standalone DataFrame or an AnnData object
+    containing the module-level DataFrame in `adata.uns`.  When an AnnData
+    object is supplied, `ggm_key` is used to locate the DataFrame via
+    `adata.uns['ggm_keys'][ggm_key]['module_info']`.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame | AnnData
+        DataFrame must contain the columns
+        'module_id', 'degree', 'gene_moran_I', and 'module_moran_I'.
+        AnnData must hold the same DataFrame at the location described above.
+    ggm_key : str, optional
+        Key for locating the module-information DataFrame in AnnData (default: 'ggm').
+    module_id : str
+        Module identifier to be plotted.
+    highlight_genes : list[str] | None, optional
+        Genes to highlight on the scatter plot (default: None).
+    show_highlight_genes : bool, optional
+        If True, print gene symbols for highlighted points (default: True).
+    show_stats : bool, optional
+        If True, compute and display the correlation coefficient and adjusted
+        p-value (default: True).
+    corr_method : {'pearson', 'spearman', 'kendall'}, optional
+        Method for computing correlation (default: 'pearson').
+    adjust_method : str, optional
+        Multiple-testing correction method passed to
+        `statsmodels.stats.multitest.multipletests` (default: 'fdr_bh').
+    show_regression : bool, optional
+        Draw an OLS regression line with 95 % confidence interval (default: True).
+    show_module_moran : bool, optional
+        Draw a dashed horizontal line at the module Moran's I value (default: True).
+    nodes_size : int or float, optional
+        Marker size for all scatter points (default: 30).
+    nodes_color : str, optional
+        Color for non-highlighted points (default: '#A6CEE3').
+    highlight_color : str, optional
+        Color for highlighted points (default: '#E6550D').
+    axis_label_size : int, optional
+        Font size for axis labels (default: 13).
+    tick_label_size : int, optional
+        Font size for tick labels (default: 11).
+    text_size : int, optional
+        Font size for all text annotations (default: 11).
+    line_width : float, optional
+        Line width for axes, regression line, and cutoff line (default: 1.2).
+    fig_width, fig_height : float, optional
+        Figure dimensions in inches (default: 5 X 5).
+    save_plot_as : str | None, optional
+        File name for saving the figure (.png or .pdf).  If None, the plot is
+        not written to disk (default: None).
+
+    Returns
+    -------
+    None
+        The function shows the plot directly and optionally saves it to disk.
+    """
+    # ---------- locate DataFrame ----------
+    if isinstance(data, pd.DataFrame):
+        df = data
+        required = {"module_id", "degree", "gene_moran_I", "module_moran_I"}
+        if not required.issubset(df.columns):
+            missing = ", ".join(sorted(required - set(df.columns)))
+            raise ValueError(f"DataFrame is missing required column(s): {missing}")
+    elif hasattr(data, "uns"):
+        ggm_keys = data.uns.get("ggm_keys", {})
+        if ggm_key not in ggm_keys:
+            raise ValueError(f"'{ggm_key}' not found in adata.uns['ggm_keys']")
+        mod_key = ggm_keys[ggm_key].get("module_info")
+        if mod_key is None or mod_key not in data.uns:
+            raise ValueError(f"module_info '{mod_key}' not present in adata.uns")
+        df = data.uns[mod_key]
+        if not isinstance(df, pd.DataFrame):
+            raise TypeError("Located module_info is not a pandas DataFrame")
+    else:
+        raise TypeError("Argument 'data' must be a DataFrame or AnnData-like object")
+
+    # ---------- subset by module ----------
+    sub = df[df["module_id"] == module_id].copy()
+    if sub.empty:
+        raise ValueError(f"Module '{module_id}' not found in the DataFrame")
+    for col in ("degree", "gene_moran_I"):
+        if col not in sub.columns:
+            raise KeyError(f"Required column '{col}' is missing in the DataFrame")
+
+    # ---------- correlation ----------
+    if show_stats:
+        method = corr_method.lower()
+        if method == "pearson":
+            r, p = pearsonr(sub["degree"], sub["gene_moran_I"])
+        elif method == "spearman":
+            r, p = spearmanr(sub["degree"], sub["gene_moran_I"])
+        elif method == "kendall":
+            r, p = kendalltau(sub["degree"], sub["gene_moran_I"])
+        else:
+            raise ValueError("corr_method must be 'pearson', 'spearman', or 'kendall'")
+        p_adj = multipletests([p], method=adjust_method)[1][0]
+
+    # ---------- regression ----------
+    if show_regression:
+        X = sm.add_constant(sub["degree"])
+        model = sm.OLS(sub["gene_moran_I"], X).fit()
+        x_pred = np.linspace(sub["degree"].min(), sub["degree"].max(), 200)
+        pred = model.get_prediction(sm.add_constant(x_pred)).summary_frame(alpha=0.05)
+
+    # ---------- plotting ----------
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=300)
+    ax.set_facecolor("#FFFFFF")
+    for spine in ax.spines.values():
+        spine.set_linewidth(line_width)
+
+    ax.scatter(
+        sub["degree"], sub["gene_moran_I"],
+        s=nodes_size, c=nodes_color,
+        edgecolors="k", linewidths=line_width * 0.35,
+        alpha=0.9, zorder=2
+    )
+
+    if show_regression:
+        ax.plot(x_pred, pred["mean"], color="#1F78B4",
+                linewidth=line_width, zorder=3)
+        ax.fill_between(
+            x_pred, pred["mean_ci_lower"], pred["mean_ci_upper"],
+            color="#1F78B4", alpha=0.25, zorder=2
+        )
+
+    if show_module_moran:
+        if "module_moran_I" not in sub.columns:
+            raise KeyError("Column 'module_moran_I' is missing in the DataFrame")
+        cutoff = sub["module_moran_I"].iloc[0]
+        ax.axhline(cutoff, color="k", linestyle="--",
+                   linewidth=line_width, zorder=1.5)
+        x_min = sub["degree"].min()
+        x_rng = sub["degree"].max() - x_min
+        y_rng = ax.get_ylim()[1] - ax.get_ylim()[0]
+        ax.text(
+            x_min - 0.02 * x_rng, cutoff - 0.03 * y_rng,
+            f"Moran'I of {module_id}: {cutoff:.3f}",
+            ha="left", va="top", fontsize=text_size
+        )
+
+    if highlight_genes:
+        mask_symbol = sub["symbol"].isin(highlight_genes) if "symbol" in sub else False
+        mask_gene = sub["gene"].isin(highlight_genes)
+        high = sub[mask_symbol | mask_gene]
+        ax.scatter(
+            high["degree"], high["gene_moran_I"],
+            s=nodes_size, c=highlight_color,
+            edgecolors="k", linewidths=line_width * 0.5, zorder=4
+        )
+        if show_highlight_genes and not high.empty:
+            y_rng = ax.get_ylim()[1] - ax.get_ylim()[0]
+            offset = y_rng * 0.02
+            for _, row in high.iterrows():
+                ax.text(
+                    row["degree"], row["gene_moran_I"] + offset,
+                    row.get("symbol", row["gene"]),
+                    fontsize=text_size, ha="center", va="bottom",
+                    color=highlight_color, zorder=5
+                )
+
+    if show_stats:
+        ax.text(
+            0.95, 0.05,
+            rf"$r = {r:.3f},\; \mathit{{P}}_{{\mathrm{{adj}}}} = {p_adj:.2e}$",
+            ha="right", va="bottom",
+            transform=ax.transAxes,
+            fontsize=text_size,
+            bbox=dict(boxstyle="round,pad=0.25",
+                      facecolor="white", alpha=0.75, lw=0)
+        )
+
+    ax.set_xlabel("Degree", fontsize=axis_label_size)
+    ax.set_ylabel("Moran'I", fontsize=axis_label_size)
+    ax.tick_params(labelsize=tick_label_size)
+    plt.tight_layout()
+
+    if save_plot_as:
+        ext = save_plot_as.split(".")[-1].lower()
+        if ext not in ("pdf", "png"):
+            raise ValueError("save_plot_as must end with '.pdf' or '.png'")
+        dpi = 300 if ext == "png" else None
+        fig.savefig(save_plot_as, dpi=dpi, bbox_inches="tight")
+
+    plt.show()
