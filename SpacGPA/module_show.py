@@ -8,14 +8,13 @@ import statsmodels.api as sm
 import itertools
 from scipy.cluster.hierarchy import linkage, dendrogram, leaves_list
 from scipy.spatial.distance import squareform
+from scipy.stats import pearsonr, spearmanr, kendalltau
 from matplotlib import ticker
 from matplotlib.colors import ListedColormap
 from matplotlib.patches import Rectangle
 from matplotlib.lines import Line2D
-from typing import List
-from scipy.stats import pearsonr, spearmanr, kendalltau
 from statsmodels.stats.multitest import multipletests
-
+from typing import List, Optional
 
 # get_module_edges 
 def get_module_edges(self, module_id):
@@ -107,8 +106,9 @@ def get_module_anno(self, module_id, add_enrich_info=True, top_n=None, term_id=N
 def module_network_plot(
     nodes_edges: pd.DataFrame,
     nodes_anno: pd.DataFrame,
-    show_nodes=30,
-    highlight_anno: str = None,
+    show_nodes = 30,
+    highlight_anno: Optional[str] = None,
+    highlight_genes: Optional[List[str]] = None,
     label_show: str = 'all',
     use_symbol: bool = True,
     
@@ -128,7 +128,7 @@ def module_network_plot(
     node_color: str = 'darkgray',
     node_size: int = 100,
     node_alpha: float = 0.8,
-    highlight_node_color: str = 'darkgray',
+    highlight_node_color: str = 'salmon',
     highlight_node_size: int = 100,
     highlight_node_alpha: float = 0.8,
     
@@ -142,8 +142,8 @@ def module_network_plot(
     highlight_label_alpha: float = 1.0,
     
     plot: bool = True,
-    save_plot_as: str = None,
-    save_network_as: str = None
+    save_plot_as: Optional[str] = None,
+    save_network_as: Optional[str] = None
 ) -> nx.Graph:
     """
     Construct and optionally render a gene co-expression network.
@@ -164,6 +164,10 @@ def module_network_plot(
         Number of top-ranked genes to include, or 'all' to include every gene.
     highlight_anno : str or None, default=None
         Column in nodes_anno whose non-null entries mark highlighted nodes.
+        Ignored if highlight_genes is provided.
+    highlight_genes : list of str or None, default=None
+        List of gene identifiers or symbols to highlight. Matches first against
+        nodes_anno['symbol'] if present, then nodes_anno['gene']. Overrides highlight_anno.
     label_show : {'all', 'highlight', 'none'}, default='all'
         Which nodes to label: all nodes, only highlighted nodes, or none.
     use_symbol : bool, default=True
@@ -196,7 +200,7 @@ def module_network_plot(
         Size of non-highlighted nodes.
     node_alpha : float, default=0.8
         Opacity of non-highlighted nodes.
-    highlight_node_color : str, default='darkgray'
+    highlight_node_color : str, default='salmon'
         Color of highlighted nodes.
     highlight_node_size : int, default=100
         Size of highlighted nodes.
@@ -230,39 +234,57 @@ def module_network_plot(
     networkx.Graph
         The constructed co-expression network graph.
     """
-    # Prepare node labels (use 'symbol' if available and requested).
+    # Prepare node labels
     has_symbol = use_symbol and 'symbol' in nodes_anno.columns
     label_map = {
         row['gene']: row['symbol'] if has_symbol and pd.notnull(row['symbol']) else row['gene']
         for _, row in nodes_anno.iterrows()
     }
 
-    # Select top genes by rank or include all.
+    # Select nodes
     if show_nodes != 'all':
         top_n = min(int(show_nodes), len(nodes_anno))
         genes = nodes_anno.sort_values('rank').iloc[:top_n]['gene'].tolist()
     else:
         genes = nodes_anno['gene'].tolist()
 
-    # Identify highlighted genes.
-    highlight_set = set()
-    if highlight_anno and highlight_anno in nodes_anno.columns:
-        highlight_set = set(nodes_anno.loc[nodes_anno[highlight_anno].notnull(), 'gene'])
+    # Determine highlight set
+    if highlight_genes is not None:
+        symbol_to_gene = {}
+        if has_symbol:
+            symbol_to_gene = {
+                sym: gene for gene, sym in zip(nodes_anno['gene'], nodes_anno['symbol'])
+                if pd.notnull(sym)
+            }
+        highlight_set = set()
+        for g in highlight_genes:
+            if has_symbol and g in symbol_to_gene:
+                highlight_set.add(symbol_to_gene[g])
+            elif g in genes:
+                highlight_set.add(g)
+    else:
+        highlight_set = set()
+        if highlight_anno and highlight_anno in nodes_anno.columns:
+            highlight_set = set(
+                nodes_anno.loc[nodes_anno[highlight_anno].notnull(), 'gene']
+            )
 
-    # Build the NetworkX graph and assign edge weights.
+    # Build graph
     G = nx.Graph()
     for gene in genes:
         G.add_node(gene, highlight=(gene in highlight_set))
-    sub = nodes_edges[nodes_edges['GeneA'].isin(genes) & nodes_edges['GeneB'].isin(genes)]
+    sub = nodes_edges[
+        nodes_edges['GeneA'].isin(genes) & nodes_edges['GeneB'].isin(genes)
+    ]
     for _, row in sub.iterrows():
-        weight = row.get('Pcor', 1.0) ** weight_power
-        G.add_edge(row['GeneA'], row['GeneB'], weight=weight)
+        w = row.get('Pcor', 1.0) ** weight_power
+        G.add_edge(row['GeneA'], row['GeneB'], weight=w)
 
-    # Export graph if requested.
+    # Export if requested
     if save_network_as:
         nx.write_graphml(G, save_network_as)
 
-    # Compute node positions according to chosen layout.
+    # Layout
     if layout == 'spring':
         pos = nx.spring_layout(G, weight='weight', k=layout_k,
                                iterations=layout_iterations, seed=seed)
@@ -276,41 +298,26 @@ def module_network_plot(
         pos = nx.spring_layout(G, weight='weight', k=layout_k,
                                iterations=layout_iterations, seed=seed)
 
-    # Draw and optionally save the plot.
+    # Draw & save
     if plot or save_plot_as:
         fig = plt.figure(figsize=(8, 8))
-
-        # Draw edges.
         nx.draw_networkx_edges(
-            G, pos,
-            style=line_style,
-            width=line_width,
-            alpha=line_alpha,
-            edge_color=line_color
+            G, pos, style=line_style, width=line_width,
+            alpha=line_alpha, edge_color=line_color
         )
-
-        # Draw nodes.
         normal = [n for n, d in G.nodes(data=True) if not d['highlight']]
         highl = [n for n, d in G.nodes(data=True) if d['highlight']]
         nx.draw_networkx_nodes(
-            G, pos, nodelist=normal,
-            node_size=node_size,
-            node_color=node_color,
-            edgecolors='k',
-            linewidths=node_border_width,
-            alpha=node_alpha
+            G, pos, nodelist=normal, node_size=node_size,
+            node_color=node_color, edgecolors='k',
+            linewidths=node_border_width, alpha=node_alpha
         )
         if highlight_set:
             nx.draw_networkx_nodes(
-                G, pos, nodelist=highl,
-                node_size=highlight_node_size,
-                node_color=highlight_node_color,
-                edgecolors='k',
-                linewidths=node_border_width,
-                alpha=highlight_node_alpha
+                G, pos, nodelist=highl, node_size=highlight_node_size,
+                node_color=highlight_node_color, edgecolors='k',
+                linewidths=node_border_width, alpha=highlight_node_alpha
             )
-
-        # Draw labels.
         labels_normal = {}
         labels_highlight = {}
         if label_show == 'all':
@@ -318,7 +325,6 @@ def module_network_plot(
             labels_highlight = {n: label_map[n] for n in highl}
         elif label_show == 'highlight':
             labels_highlight = {n: label_map[n] for n in highl}
-
         if labels_normal:
             nx.draw_networkx_labels(
                 G, pos, labels=labels_normal,
@@ -335,19 +341,15 @@ def module_network_plot(
                 font_color=highlight_label_color,
                 alpha=highlight_label_alpha
             )
-
         plt.margins(margin)
         plt.axis('off')
         plt.tight_layout(pad=margin)
-
-        # Save figure if requested.
         if save_plot_as:
             ext = save_plot_as.split('.')[-1].lower()
             if ext not in ['pdf', 'png']:
                 raise ValueError("save_plot_as must end with .pdf or .png")
             dpi = 300 if ext == 'png' else None
             fig.savefig(save_plot_as, dpi=dpi, bbox_inches='tight')
-
         if plot:
             plt.show()
 
