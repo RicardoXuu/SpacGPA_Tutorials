@@ -109,6 +109,9 @@ print(f"Time: {time.time() - start_time:.5f} s")
 ggm
 
 # %%
+ggm.modules_summary.to_csv("data/Mouse_Pup_5K_ggm_modules_summary_r3.csv")
+
+# %%
 # 重新读取数据
 del adata
 adata = sc.read_visium("/dta/ypxu/ST_GGM/Raw_Datasets/visium_HD/Mouse_Small_Intestine_FFPE/binned_outputs/square_016um/",

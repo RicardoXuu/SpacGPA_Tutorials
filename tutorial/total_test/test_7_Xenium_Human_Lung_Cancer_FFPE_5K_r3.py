@@ -106,6 +106,9 @@ print(f"Time: {time.time() - start_time:.5f} s")
 ggm
 
 # %%
+ggm.modules_summary.to_csv("data/Human_Lung_Cancer_5K_ggm_modules_summary_r3.csv")
+
+# %%
 # 重新读取数据
 adata = sc.read_10x_h5('/dta/ypxu/ST_GGM/Raw_Datasets/Xenium/Human_Lung_Cancer_5K/cell_feature_matrix.h5')
 adata.var_names_make_unique()

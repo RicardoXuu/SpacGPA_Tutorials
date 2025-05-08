@@ -102,7 +102,9 @@ ggm = sg.load_ggm("data/MOSTA_E16.5_E1S1_r3.ggm.h5")
 print(f"Time: {time.time() - start_time:.5f} s")
 
 # %%
-ggm
+ggm.modules_summary.to_csv("data/MOSTA_E16.5_E1S1_ggm_modules_summary_r3.csv")
+
+
 
 # %%
 # 重新读取数据
