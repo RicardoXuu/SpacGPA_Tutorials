@@ -109,7 +109,7 @@ print(f"Time: {time.time() - start_time:.5f} s")
 ggm
 
 # %%
-ggm.modules_summary.to_csv("data/Mouse_Pup_5K_ggm_modules_summary_r3.csv")
+ggm.modules_summary.to_csv("data/Mouse_Small_Intestine_FFPE_ggm_modules_summary_r3.csv")
 
 # %%
 # 重新读取数据
