@@ -1,5 +1,5 @@
 # %%
-# r2版本，使用新的基因选择方案，当2500<基因数<10000时，每次循环采样1/5的基因。
+# r3版本，使用新的基因选择方案，当2500<基因数<10000时，每次循环采样1/5的基因。
 # 使用SpacGPA对 Xenium Human_Lung_Cancer_FFPE_5K 数据集进行分析
 import numpy as np
 import pandas as pd
