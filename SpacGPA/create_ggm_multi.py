@@ -17,7 +17,7 @@ from .enrich_analysis import mp_enrichment_analysis as run_mp
 from .par_optimization import find_best_inflation
 
 class create_ggm_multi:   
-    def __init__(self, adata_list, method="intersection", round_num=None, selected_num=None, target_sampling_time=100, 
+    def __init__(self, adata_list, method="union", round_num=None, selected_num=None, target_sampling_time=100, 
                  gene_name=None, sample_name=None, project_name='na',
                  cut_off_pcor=0.03, cut_off_coex_cell=10,  
                  use_chunking=True, chunk_size=5000, 
