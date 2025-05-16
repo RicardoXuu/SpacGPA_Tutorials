@@ -1,4 +1,5 @@
 # %%
+# 在高版本Pytorch中运行
 # r3版本，对多张visium切片进行联合分析
 # 使用SpacGPA对 6张visium切片 进行联合分析
 import numpy as np
@@ -129,13 +130,13 @@ ggm
 # %%
 # 保存GGM
 start_time = time.time()
-sg.save_ggm(ggm, "data/Visium_Mouse_Brain_Multi_Union.ggm.h5")
+sg.save_ggm(ggm, "data/Visium_Mouse_Brain_Multi_Union_highPytorh.ggm.h5")
 print(f"Time: {time.time() - start_time:.5f} s")
 
 # %%
 # 读取GGM
 start_time = time.time()
-ggm = sg.load_ggm("data/Visium_Mouse_Brain_Multi_Union.ggm.h5")
+ggm = sg.load_ggm("data/Visium_Mouse_Brain_Multi_Union_highPytorh.ggm.h5")
 print(f"Time: {time.time() - start_time:.5f} s")
 
 # %%
@@ -143,7 +144,7 @@ ggm
 
 # %%
 print(ggm.modules_summary[0:10])
-ggm.modules_summary.to_csv("data/Visium_Mouse_Brain_Multi_Union_ggm_modules_summary_r3.csv")
+ggm.modules_summary.to_csv("data/Visium_Mouse_Brain_Multi_Union_highPytorh_ggm_modules_summary_r3.csv")
 
 
 # %%

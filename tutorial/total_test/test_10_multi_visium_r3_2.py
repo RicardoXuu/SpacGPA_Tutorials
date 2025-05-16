@@ -54,29 +54,28 @@ adata_6 = sc.read_visium("/dta/ypxu/ST_GGM/Raw_Datasets/visium/Visium_FFPE_Mouse
 adata_6.var_names = adata_6.var['gene_ids']
 
 # %%
-adata_list = [adata_1, adata_2, adata_3, adata_4, adata_5, adata_6]
-for adata in adata_list:
-    print(adata.X.shape)
-    sc.pp.normalize_total(adata, target_sum=1e4)
-    sc.pp.log1p(adata)
-    sc.pp.filter_cells(adata,min_genes=200)
-    print(adata.X.shape)
-    print('------------------')
+adata = sc.concat([adata_1, adata_2, adata_3, adata_4, adata_5, adata_6], axis=0, join='outer', 
+                           label='batch', keys=[
+                                               'coronal_ff','coronal_ffpe1','coronal_ffpe2',
+                                                'coronal_ff_v1','brain_ff_adult','brain_ffpe_adult'])
+sc.pp.normalize_total(adata, target_sum=1e4)
+sc.pp.log1p(adata)
+sc.pp.filter_cells(adata,min_genes=200)
+sc.pp.filter_genes(adata, min_cells=10)
 
 
 # %%
 start_time = time.time()
-ggm = sg.create_ggm_multi(adata_list,
-                          method='union',
-                          run_mode=2, 
-                          double_precision=False,
-                          use_chunking=True,
-                          chunk_size=10000,
-                          stop_threshold=0,
-                          FDR_control=True,
-                          FDR_threshold=0.05,
-                          auto_adjust=True,
-                          )
+ggm = sg.create_ggm(adata,
+                    run_mode=2, 
+                    double_precision=False,
+                    use_chunking=True,
+                    chunk_size=10000,
+                    stop_threshold=0,
+                    FDR_control=True,
+                    FDR_threshold=0.05,
+                    auto_adjust=True,
+                    )
 start_time = time.time()
 
 # %%
@@ -129,13 +128,13 @@ ggm
 # %%
 # 保存GGM
 start_time = time.time()
-sg.save_ggm(ggm, "data/Visium_Mouse_Brain_Multi_Union.ggm.h5")
+sg.save_ggm(ggm, "data/Visium_Mouse_Brain_Multi_Concat.ggm.h5")
 print(f"Time: {time.time() - start_time:.5f} s")
 
 # %%
 # 读取GGM
 start_time = time.time()
-ggm = sg.load_ggm("data/Visium_Mouse_Brain_Multi_Union.ggm.h5")
+ggm = sg.load_ggm("data/Visium_Mouse_Brain_Multi_Concat.ggm.h5")
 print(f"Time: {time.time() - start_time:.5f} s")
 
 # %%
@@ -143,7 +142,7 @@ ggm
 
 # %%
 print(ggm.modules_summary[0:10])
-ggm.modules_summary.to_csv("data/Visium_Mouse_Brain_Multi_Union_ggm_modules_summary_r3.csv")
+ggm.modules_summary.to_csv("data/Visium_Mouse_Brain_Multi_Concat_ggm_modules_summary_r3.csv")
 
 
 # %%
