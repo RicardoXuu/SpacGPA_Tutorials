@@ -153,8 +153,8 @@ adata_hd = sc.read_visium("/dta/ypxu/ST_GGM/Raw_Datasets/visium_HD/Mouse_Brain_F
                        count_file="filtered_feature_bc_matrix.h5")
 adata_hd.var_names = adata_hd.var['gene_ids']
 adata_hd.var_names_make_unique()
-coor_int = [[float(x[0]),float(x[1])] for x in adata_hd.obsm["spatial"]]
-adata_hd.obsm["spatial"] = np.array(coor_int)
+#coor_int = [[float(x[0]),float(x[1])] for x in adata_hd.obsm["spatial"]]
+#adata_hd.obsm["spatial"] = np.array(coor_int)
 sc.pp.normalize_total(adata_hd, target_sum=1e4)
 sc.pp.log1p(adata_hd)
 
@@ -162,3 +162,13 @@ sc.pp.log1p(adata_hd)
 adata_sc = sc.read_h5ad('/dta/ypxu/ST_GGM/Raw_Datasets/Sc_Data/WMB-10Xv3/WMB-10Xv3-all-downsampled.h5ad')
 
 # %%
+sg.calculate_module_expression(adata_visium,ggm)
+sg.calculate_module_expression(adata_hd,ggm)
+sg.calculate_module_expression(adata_sc,ggm)
+
+# %%
+sc.pl.spatial(adata_visium, color="M19_exp", alpha=1, size=1.3,bw=0.5,cmap='coolwarm')
+sc.pl.spatial(adata_hd, color="M19_exp", alpha=1, size=1,bw=0.5,cmap='coolwarm')
+sc.pl.umap(adata_sc, color="M19_exp",cmap='coolwarm')
+# %%
+adata_hd
