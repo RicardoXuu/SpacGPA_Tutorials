@@ -103,11 +103,6 @@ ggm.find_modules(methods='mcl-hub',
 print(f"Time: {time.time() - start_time:.5f} s")
 print(ggm.modules_summary)
 
-
-# %%
-
-
-
 # %%
 # GO富集分析
 start_time = time.time()
@@ -129,13 +124,13 @@ ggm
 # %%
 # 保存GGM
 start_time = time.time()
-sg.save_ggm(ggm, "data/Visium_Mouse_Brain_Multi_Union.ggm.h5")
+sg.save_ggm(ggm, "data/Visium_Mouse_Brain_Multi_Union_r3.ggm.h5")
 print(f"Time: {time.time() - start_time:.5f} s")
 
 # %%
 # 读取GGM
 start_time = time.time()
-ggm = sg.load_ggm("data/Visium_Mouse_Brain_Multi_Union.ggm.h5")
+ggm = sg.load_ggm("data/Visium_Mouse_Brain_Multi_Union_r3.ggm.h5")
 print(f"Time: {time.time() - start_time:.5f} s")
 
 # %%
