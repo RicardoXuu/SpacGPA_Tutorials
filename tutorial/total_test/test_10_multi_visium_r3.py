@@ -12,10 +12,12 @@ import os
 import gc
 import matplotlib.pyplot as plt
 import seaborn as sns
+import copy
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from PIL import Image
+from skimage.transform import rotate
 
 # %% 切换工作目录
 os.getcwd()
@@ -153,8 +155,30 @@ adata_hd = sc.read_visium("/dta/ypxu/ST_GGM/Raw_Datasets/visium_HD/Mouse_Brain_F
                        count_file="filtered_feature_bc_matrix.h5")
 adata_hd.var_names = adata_hd.var['gene_ids']
 adata_hd.var_names_make_unique()
-#coor_int = [[float(x[0]),float(x[1])] for x in adata_hd.obsm["spatial"]]
-#adata_hd.obsm["spatial"] = np.array(coor_int)
+# Reset the coords 
+lib_id = list(adata_hd.uns['spatial'].keys())[0]          
+hires_img = adata_hd.uns['spatial'][lib_id]['images']['hires']
+lowres_img = adata_hd.uns['spatial'][lib_id]['images']['lowres']
+H, W, _ = hires_img.shape                                  
+hires_rot  = rotate(hires_img,  angle=-90, resize=True, preserve_range=True).astype(hires_img.dtype)
+lowres_rot = rotate(lowres_img, angle=-90, resize=True, preserve_range=True).astype(lowres_img.dtype)
+hires_new  = np.fliplr(hires_rot)
+lowres_new = np.fliplr(lowres_rot)
+H_rot, W_rot, _ = hires_rot.shape  
+coords = adata_hd.obsm['spatial'].copy()
+x, y = coords[:, 0], coords[:, 1]
+x1 = y
+y1 = H - x            
+x2 = x1                       
+y2 = W_rot - y1               
+adata_hd.obsm['spatial'] = np.c_[x2, y2]
+adata_hd.uns['spatial'] = copy.deepcopy(adata_hd.uns['spatial'])
+adata_hd.uns['spatial'][lib_id]['images']['hires']  = hires_new
+adata_hd.uns['spatial'][lib_id]['images']['lowres'] = lowres_new
+sf = adata_hd.uns['spatial'][lib_id]['scalefactors']
+sf['tissue_hires_scalef']  = sf['tissue_hires_scalef']
+sf['tissue_lowres_scalef'] = sf['tissue_lowres_scalef']
+# Log-transform the data
 sc.pp.normalize_total(adata_hd, target_sum=1e4)
 sc.pp.log1p(adata_hd)
 
@@ -167,8 +191,20 @@ sg.calculate_module_expression(adata_hd,ggm)
 sg.calculate_module_expression(adata_sc,ggm)
 
 # %%
-sc.pl.spatial(adata_visium, color="M19_exp", alpha=1, size=1.3,bw=0.5,cmap='coolwarm')
-sc.pl.spatial(adata_hd, color="M19_exp", alpha=1, size=1,bw=0.5,cmap='coolwarm')
-sc.pl.umap(adata_sc, color="M19_exp",cmap='coolwarm')
+sc.pl.spatial(adata_visium, color="M24_exp", alpha=1, size=1.3,bw=0.5,cmap='coolwarm')
+sc.pl.spatial(adata_hd, color="M24_exp", alpha=1, size=2,bw=0.5,cmap='coolwarm')
+sc.pl.umap(adata_sc, color="M24_exp",cmap='coolwarm',size=5)
+
 # %%
-adata_hd
+for color_m in ['RdYlBu_r','vlag','viridis','turbo',
+                'coolwarm','cividis','bwr','Spectral_r',
+                'Reds','RdBu_r']:
+    sc.pl.spatial(adata_visium, color=["M2_exp","M24_exp","M25_exp"],
+                  alpha=1, size=1.3,bw=0.5,cmap=color_m,title=[color_m,color_m,color_m])
+
+# %%
+adata_hd.obs['in_tissue'].describe()
+
+# %%
+adata_hd.obsm['spatial'].max(0)
+# %%
