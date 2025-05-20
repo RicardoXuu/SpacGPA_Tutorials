@@ -157,42 +157,44 @@ sc.pp.log1p(adata_in)
 adata_vi = sc.read_visium("/dta/ypxu/ST_GGM/Raw_Datasets/visium/CytAssist_FreshFrozen_Mouse_Brain_Rep2",
                        count_file="CytAssist_FreshFrozen_Mouse_Brain_Rep2_filtered_feature_bc_matrix.h5")
 adata_vi.var_names = adata_vi.var['gene_ids']
-sc.pl.spatial(adata_vi, color="ENSMUSG00000051951", alpha=1, size=1.3,bw=0.5,cmap='coolwarm')
-
-print(adata_vi.obsm['spatial'].max(0))
-print(adata_vi.obsm['spatial'].min(0))
-
-# Reset the coords 
-lib_id = list(adata_vi.uns['spatial'].keys())[0]          
-hires_img = adata_vi.uns['spatial'][lib_id]['images']['hires']
-lowres_img = adata_vi.uns['spatial'][lib_id]['images']['lowres']
-hires_rot  = np.rot90(hires_img,  k=3)   # k=3 = 顺时针 90°
-lowres_rot = np.rot90(lowres_img, k=3)
-
-coords = adata.obsm['spatial']
-x_max = coords[:, 0].max()
-
-coords_rot = np.empty_like(coords)
-coords_rot[:, 0] =  coords[:, 1]          # x' =  y
-coords_rot[:, 1] =  x_max - coords[:, 0]  # y' = (x_max - x)
-
-adata.obsm['spatial'] = coords_rot
-
-adata_vi.uns['spatial'][lib_id]['images']['hires']  = hires_rot
-adata_vi.uns['spatial'][lib_id]['images']['lowres'] = lowres_rot
-sf = adata_vi.uns['spatial'][lib_id]['scalefactors']
-print(adata_vi.uns['spatial'][lib_id]['scalefactors'])
-sf['tissue_hires_scalef']  = sf['tissue_hires_scalef']
-sf['tissue_lowres_scalef'] = sf['tissue_lowres_scalef']
 # Log-transform the data
 sc.pp.normalize_total(adata_vi,target_sum=1e4)
 sc.pp.log1p(adata_vi)
+sc.pl.spatial(adata_vi, color="ENSMUSG00000051951", alpha=1, size=1.3,bw=0.5,cmap='coolwarm',
+              save="/a1.pdf",show=True)
+lib_id = list(adata_vi.uns['spatial'].keys())[0]          
+hires_img = adata_vi.uns['spatial'][lib_id]['images']['hires']
+lowres_img = adata_vi.uns['spatial'][lib_id]['images']['lowres']
+H, W, _ = hires_img.shape
+print(W, H)                                  
+hires_rot  = rotate(hires_img,  angle=-90, resize=True, preserve_range=True).astype(hires_img.dtype)
+lowres_rot = rotate(lowres_img, angle=-90, resize=True, preserve_range=True).astype(lowres_img.dtype)
+coords = adata_vi.obsm['spatial'].copy()
+x, y = coords[:, 0], coords[:, 1]
+W_full = coords[:, 0].max() - coords[:, 0].min()
+H_full = coords[:, 1].max() - coords[:, 1].min()
+print(W_full, H_full)
+x_new = H_full - y + adata_vi.uns['spatial'][lib_id]['scalefactors']['spot_diameter_fullres'] 
+y_new = x
+adata_vi.obsm['spatial'] = np.c_[x_new, y_new]
+adata_vi.uns['spatial'] = copy.deepcopy(adata_vi.uns['spatial'])
+adata_vi.uns['spatial'][lib_id]['images']['hires']  = hires_rot
+adata_vi.uns['spatial'][lib_id]['images']['lowres'] = lowres_rot
+sf = adata_vi.uns['spatial'][lib_id]['scalefactors']
+sf['tissue_hires_scalef']  = sf['tissue_hires_scalef']
+sf['tissue_lowres_scalef'] = sf['tissue_lowres_scalef']
 
-sc.pl.spatial(adata_vi, color="ENSMUSG00000051951", alpha=1, size=1.3,bw=0.5,cmap='coolwarm')
+# Remove spots outside the tissue
+adata_vi = adata_vi[adata_vi.obsm['spatial'][:, 1] < 27500]
+adata_vi = adata_vi[adata_vi.obsm['spatial'][:, 1] > -5561]
+
+sc.pl.spatial(adata_vi, color="ENSMUSG00000051951", alpha=1, size=1.3,bw=0.5,cmap='coolwarm',save="/a2.pdf",show=True)
 sc.pl.spatial(adata_vi)
-#
-print(adata_vi.obsm['spatial'].max(0))
-print(adata_vi.obsm['spatial'].min(0))
+
+
+# %%
+adata_vi.uns['spatial'][lib_id]['scalefactors']
+
 
 # %%
 # 读取验证集2,visium_HD数据集
@@ -213,7 +215,7 @@ H_rot, W_rot, _ = hires_rot.shape
 coords = adata_hd.obsm['spatial'].copy()
 x, y = coords[:, 0], coords[:, 1]
 x1 = y 
-y1 = H - x            
+y1 = H - x + adata_hd.uns['spatial'][lib_id]['scalefactors']['spot_diameter_fullres']          
 x2 = x1                       
 y2 = W_rot - y1               
 adata_hd.obsm['spatial'] = np.c_[x2, y2]
@@ -230,29 +232,22 @@ sc.pp.log1p(adata_hd)
 # Remove spots outside the tissue
 adata_hd = adata_hd[adata_hd.obsm['spatial'][:, 0] < 20800]
 
+# %%
 # 读取验证集3,scRNA-seq数据集
 adata_sc = sc.read_h5ad('/dta/ypxu/ST_GGM/Raw_Datasets/Sc_Data/WMB-10Xv3/WMB-10Xv3-all-downsampled.h5ad')
 
 # %%
 # 计算模块表达量
 sg.calculate_module_expression(adata_in,ggm)
-
-# %%
 sg.calculate_module_expression(adata_vi,ggm)
-
-# %%
 sg.calculate_module_expression(adata_hd,ggm)
 sg.calculate_module_expression(adata_sc,ggm)
 
 # %%
-sc.pl.spatial(adata_in, color="M29_exp", alpha=1, size=1.3,bw=0.5,cmap='coolwarm')
-
-# %%
-sc.pl.spatial(adata_vi, color="M29_exp", alpha=1, size=1.3,bw=0.5,cmap='coolwarm')
-
-# %%
-sc.pl.spatial(adata_hd, color="M29_exp", alpha=1, size=1.3,bw=0.5,cmap='coolwarm')
-sc.pl.umap(adata_sc, color="M29_exp",cmap='coolwarm',size=3)
+sc.pl.spatial(adata_in, color="M24_exp", alpha=1, size=1.3,bw=0.5,cmap='coolwarm')
+sc.pl.spatial(adata_vi, color="M24_exp", alpha=1, size=1.3,bw=0.5,cmap='coolwarm')
+sc.pl.spatial(adata_hd, color="M24_exp", alpha=1, size=1.3,bw=0.5,cmap='coolwarm')
+sc.pl.umap(adata_sc, color="M24_exp",cmap='coolwarm',size=3)
 
 # %%
 for color_m in ['RdYlBu_r','vlag','viridis','turbo',
