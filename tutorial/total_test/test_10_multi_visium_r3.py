@@ -144,13 +144,58 @@ ggm.modules_summary.to_csv("data/Visium_Mouse_Brain_Multi_Union_ggm_modules_summ
 
 
 # %%
-adata_visium = sc.read_visium("/dta/ypxu/ST_GGM/Raw_Datasets/visium/CytAssist_FFPE_Mouse_Brain_Rep1",
+# 读取参与联合分析的其中1张visium数据集
+adata_in = sc.read_visium("/dta/ypxu/ST_GGM/Raw_Datasets/visium/CytAssist_FFPE_Mouse_Brain_Rep1",
                        count_file="CytAssist_FFPE_Mouse_Brain_Rep1_filtered_feature_bc_matrix.h5")
-adata_visium.var_names = adata_visium.var['gene_ids']
-sc.pp.normalize_total(adata_visium,target_sum=1e4)
-sc.pp.log1p(adata_visium)
+adata_in.var_names = adata_in.var['gene_ids']
+# Log-transform the data
+sc.pp.normalize_total(adata_in,target_sum=1e4)
+sc.pp.log1p(adata_in)
 
 # %%
+# 读取验证集1,visium数据集
+adata_vi = sc.read_visium("/dta/ypxu/ST_GGM/Raw_Datasets/visium/CytAssist_FreshFrozen_Mouse_Brain_Rep2",
+                       count_file="CytAssist_FreshFrozen_Mouse_Brain_Rep2_filtered_feature_bc_matrix.h5")
+adata_vi.var_names = adata_vi.var['gene_ids']
+sc.pl.spatial(adata_vi, color="ENSMUSG00000051951", alpha=1, size=1.3,bw=0.5,cmap='coolwarm')
+
+print(adata_vi.obsm['spatial'].max(0))
+print(adata_vi.obsm['spatial'].min(0))
+
+# Reset the coords 
+lib_id = list(adata_vi.uns['spatial'].keys())[0]          
+hires_img = adata_vi.uns['spatial'][lib_id]['images']['hires']
+lowres_img = adata_vi.uns['spatial'][lib_id]['images']['lowres']
+hires_rot  = np.rot90(hires_img,  k=3)   # k=3 = 顺时针 90°
+lowres_rot = np.rot90(lowres_img, k=3)
+
+coords = adata.obsm['spatial']
+x_max = coords[:, 0].max()
+
+coords_rot = np.empty_like(coords)
+coords_rot[:, 0] =  coords[:, 1]          # x' =  y
+coords_rot[:, 1] =  x_max - coords[:, 0]  # y' = (x_max - x)
+
+adata.obsm['spatial'] = coords_rot
+
+adata_vi.uns['spatial'][lib_id]['images']['hires']  = hires_rot
+adata_vi.uns['spatial'][lib_id]['images']['lowres'] = lowres_rot
+sf = adata_vi.uns['spatial'][lib_id]['scalefactors']
+print(adata_vi.uns['spatial'][lib_id]['scalefactors'])
+sf['tissue_hires_scalef']  = sf['tissue_hires_scalef']
+sf['tissue_lowres_scalef'] = sf['tissue_lowres_scalef']
+# Log-transform the data
+sc.pp.normalize_total(adata_vi,target_sum=1e4)
+sc.pp.log1p(adata_vi)
+
+sc.pl.spatial(adata_vi, color="ENSMUSG00000051951", alpha=1, size=1.3,bw=0.5,cmap='coolwarm')
+sc.pl.spatial(adata_vi)
+#
+print(adata_vi.obsm['spatial'].max(0))
+print(adata_vi.obsm['spatial'].min(0))
+
+# %%
+# 读取验证集2,visium_HD数据集
 adata_hd = sc.read_visium("/dta/ypxu/ST_GGM/Raw_Datasets/visium_HD/Mouse_Brain_Fixed_Frozen/binned_outputs/square_016um/",
                        count_file="filtered_feature_bc_matrix.h5")
 adata_hd.var_names = adata_hd.var['gene_ids']
@@ -167,7 +212,7 @@ lowres_new = np.fliplr(lowres_rot)
 H_rot, W_rot, _ = hires_rot.shape  
 coords = adata_hd.obsm['spatial'].copy()
 x, y = coords[:, 0], coords[:, 1]
-x1 = y
+x1 = y 
 y1 = H - x            
 x2 = x1                       
 y2 = W_rot - y1               
@@ -176,35 +221,52 @@ adata_hd.uns['spatial'] = copy.deepcopy(adata_hd.uns['spatial'])
 adata_hd.uns['spatial'][lib_id]['images']['hires']  = hires_new
 adata_hd.uns['spatial'][lib_id]['images']['lowres'] = lowres_new
 sf = adata_hd.uns['spatial'][lib_id]['scalefactors']
+print(adata_hd.uns['spatial'][lib_id]['scalefactors'])
 sf['tissue_hires_scalef']  = sf['tissue_hires_scalef']
 sf['tissue_lowres_scalef'] = sf['tissue_lowres_scalef']
 # Log-transform the data
 sc.pp.normalize_total(adata_hd, target_sum=1e4)
 sc.pp.log1p(adata_hd)
+# Remove spots outside the tissue
+adata_hd = adata_hd[adata_hd.obsm['spatial'][:, 0] < 20800]
 
-# %%
+# 读取验证集3,scRNA-seq数据集
 adata_sc = sc.read_h5ad('/dta/ypxu/ST_GGM/Raw_Datasets/Sc_Data/WMB-10Xv3/WMB-10Xv3-all-downsampled.h5ad')
 
 # %%
-sg.calculate_module_expression(adata_visium,ggm)
+# 计算模块表达量
+sg.calculate_module_expression(adata_in,ggm)
+
+# %%
+sg.calculate_module_expression(adata_vi,ggm)
+
+# %%
 sg.calculate_module_expression(adata_hd,ggm)
 sg.calculate_module_expression(adata_sc,ggm)
 
 # %%
-sc.pl.spatial(adata_visium, color="M24_exp", alpha=1, size=1.3,bw=0.5,cmap='coolwarm')
-sc.pl.spatial(adata_hd, color="M24_exp", alpha=1, size=2,bw=0.5,cmap='coolwarm')
-sc.pl.umap(adata_sc, color="M24_exp",cmap='coolwarm',size=5)
+sc.pl.spatial(adata_in, color="M29_exp", alpha=1, size=1.3,bw=0.5,cmap='coolwarm')
+
+# %%
+sc.pl.spatial(adata_vi, color="M29_exp", alpha=1, size=1.3,bw=0.5,cmap='coolwarm')
+
+# %%
+sc.pl.spatial(adata_hd, color="M29_exp", alpha=1, size=1.3,bw=0.5,cmap='coolwarm')
+sc.pl.umap(adata_sc, color="M29_exp",cmap='coolwarm',size=3)
 
 # %%
 for color_m in ['RdYlBu_r','vlag','viridis','turbo',
                 'coolwarm','cividis','bwr','Spectral_r',
                 'Reds','RdBu_r']:
-    sc.pl.spatial(adata_visium, color=["M2_exp","M24_exp","M25_exp"],
+    sc.pl.spatial(adata_vi, color=["M2_exp","M24_exp","M25_exp"],
                   alpha=1, size=1.3,bw=0.5,cmap=color_m,title=[color_m,color_m,color_m])
 
-# %%
-adata_hd.obs['in_tissue'].describe()
 
 # %%
-adata_hd.obsm['spatial'].max(0)
+sc.pl.spatial(adata_hd, size=1.3, alpha_img=0.5, bw=0.5, title= "", frameon = False, color="M27_exp",cmap='coolwarm',
+              save="/Visium_Mouse_Brain_Multi_Union_in_HD_M27_exp.pdf",show=True)
+# %%
+sc.pl.umap(adata_sc, size=3, title= "", frameon = False, color="M27_exp",cmap='coolwarm',
+              save="/Visium_Mouse_Brain_Multi_Union_in_Sc_M27_exp.pdf",show=True)
+
 # %%
