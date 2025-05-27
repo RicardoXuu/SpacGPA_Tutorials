@@ -186,7 +186,7 @@ class create_ggm_multi:
         s += f"  Method: {'Intersection' if self.method == 'intersection' else 'Union'}\n"
         s += f"  Used Gene Number: {self.gene_num}\n"
         s += f"  Overall Sample Number: {self.samples_num}\n"
-        s += f"  Pcor Thereshold: {self.cut_off_pcor}\n"
+        s += f"  Pcor Threshold: {self.cut_off_pcor}\n"
         s += "\nResults:\n"
         if self.SigEdges is not None:
             s += f"  SigEdges: DataFrame with {self.SigEdges.shape[0]} significant gene pairs\n"
@@ -321,7 +321,7 @@ class create_ggm_multi:
 
         Parameters:
         - permutation_fraction: Fraction of genes to permute.
-        - FDR_threshold: The FDR threshold that determines the significance of the Pcors Therehold.
+        - FDR_threshold: The FDR threshold that determines the significance of the Pcors Threshold.
 
         Returns:
         - fdr: The FDR results object.
@@ -524,9 +524,9 @@ class create_ggm_multi:
         if old_pcor == cut_off_pcor and old_coex_cell == cut_off_coex_cell:
             print("No changes made for cutoff values.")
         if old_pcor != cut_off_pcor:
-            print(f"Ajusted Pcor Thereshold: {old_pcor} -> {cut_off_pcor}")    
+            print(f"Ajusted Pcor Threshold: {old_pcor} -> {cut_off_pcor}")    
         if old_coex_cell != cut_off_coex_cell:
-            print(f"Ajusted Coexpressed Cell Number Thereshold: {old_coex_cell} -> {cut_off_coex_cell}")  
+            print(f"Ajusted Coexpressed Cell Number Threshold: {old_coex_cell} -> {cut_off_coex_cell}")  
 
         idx = np.where((self.pcor_all >= cut_off_pcor)
                     & (self.pcor_all < 1)
