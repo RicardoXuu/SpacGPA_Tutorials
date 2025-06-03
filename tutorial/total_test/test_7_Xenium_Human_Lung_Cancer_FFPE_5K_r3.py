@@ -120,6 +120,9 @@ adata.obsm['spatial'] = adata.obs[['x_centroid','y_centroid']].values
 sc.pp.log1p(adata)
 print(adata.X.shape)
 
+sc.pp.filter_cells(adata, min_genes=100)
+print(adata.X.shape)
+
 
 # %%
 # 计算模块的加权表达值
@@ -219,7 +222,7 @@ adata.uns['module_filtering']['type_tag'].value_counts()
 
 # %%
 # 计算并可视化模块之间的相似性
-mod_cor = sg.calculating_module_similarity(adata,
+mod_cor = sg.module_similarity_plot(adata,
                                 ggm_key='ggm',
                                 use_smooth=True,
                                 corr_method='pearson',
