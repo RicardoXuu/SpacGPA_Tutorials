@@ -1,3 +1,4 @@
+
 # %%
 # r3版本，使用新的基因选择方案，当2500<基因数<10000时，每次循环采样1/5的基因。
 # 使用SpacGPA对 Xenium Human_Lung_Cancer_FFPE_5K 数据集进行分析
@@ -43,6 +44,7 @@ print(adata.X.shape)
 
 sc.pp.filter_genes(adata,min_cells=10)
 print(adata.X.shape)
+
 
 # %%
 # 使用 GPU 计算GGM，double_precision=False
@@ -109,22 +111,6 @@ ggm
 ggm.modules_summary.to_csv("data/Human_Lung_Cancer_5K_ggm_modules_summary_r3.csv")
 
 # %%
-# 重新读取数据
-adata = sc.read_10x_h5('/dta/ypxu/ST_GGM/Raw_Datasets/Xenium/Human_Lung_Cancer_5K/cell_feature_matrix.h5')
-adata.var_names_make_unique()
-adata.var_names = adata.var['gene_ids']
-meta = pd.read_csv('/dta/ypxu/ST_GGM/Raw_Datasets/Xenium/Human_Lung_Cancer_5K/cells.csv.gz')
-adata.obs = meta
-adata.obsm['spatial'] = adata.obs[['x_centroid','y_centroid']].values
-
-sc.pp.log1p(adata)
-print(adata.X.shape)
-
-sc.pp.filter_cells(adata, min_genes=100)
-print(adata.X.shape)
-
-
-# %%
 # 计算模块的加权表达值
 start_time = time.time()
 sg.calculate_module_expression(adata, 
@@ -146,28 +132,18 @@ del ggm
 gc.collect()
 
 # %%
-# 使用leiden聚类和louvain聚类基于模块表达矩阵归一化矩阵进行聚类
+# 使用leiden聚类, 基于模块表达矩阵归一化矩阵进行聚类
 start_time = time.time()
 sc.pp.neighbors(adata, 
-                use_rep='module_expression_scaled',
-                n_pcs=adata.obsm['module_expression_scaled'].shape[1])
-sc.tl.leiden(adata, resolution=0.5, key_added='leiden_0.5_ggm')
-sc.tl.leiden(adata, resolution=1, key_added='leiden_1_ggm')
-sc.tl.louvain(adata, resolution=0.5, key_added='louvan_0.5_ggm')
-sc.tl.louvain(adata, resolution=1, key_added='louvan_1_ggm')
+                use_rep='module_expression_scaled')
+sc.tl.leiden(adata, resolution=2, key_added='leiden_2_ggm')
 print(f"Time: {time.time() - start_time:.5f} s")
 
 
 # %%
 # 可视化并保存聚类结果
-sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="leiden_0.5_ggm", 
-              save="/Human_Lung_Cancer_5K_ggm_modules_leiden_0.5_r3.pdf",show=True)
-sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="leiden_1_ggm",
-                save="/Human_Lung_Cancer_5K_ggm_modules_leiden_1_r3.pdf",show=True)
-sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="louvan_0.5_ggm",
-                save="/Human_Lung_Cancer_5K_ggm_modules_louvan_0.5_r3.pdf",show=True)
-sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="louvan_1_ggm",
-                save="/Human_Lung_Cancer_5K_ggm_modules_louvan_1_r3.pdf",show=True)
+sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="leiden_2_ggm",
+                save="/Human_Lung_Cancer_5K_ggm_modules_leiden_2_r3.pdf",show=True)
 
 
 # %%
@@ -210,7 +186,7 @@ print(f"Time: {time.time() - start_time:.5f} s")
 start_time = time.time()
 sg.classify_modules(adata, 
                     ggm_key='ggm',
-                    ref_anno='leiden_0.5_ggm',
+                    ref_anno='leiden_2_ggm',
                     #ref_cluster_method='leiden',
                     #ref_cluster_resolution=0.5,
                     skew_threshold=2,
@@ -247,7 +223,7 @@ mod_cor = sg.module_similarity_plot(adata,
 sg.module_dot_plot(
     adata,
     ggm_key='ggm',
-    groupby= 'leiden_0.5_ggm', 
+    groupby= 'leiden_2_ggm', 
     scale = True,
     corr_method='pearson',
     linkage_method='average',
@@ -261,7 +237,7 @@ sg.module_dot_plot(
     axis_labelsize=12,
     axis_fontsize=10,
     return_df=False,
-    save_plot_as="figures/Human_Lung_Cancer_5K_leiden_0_5_ggm_module_dotplot_r3.pdf" 
+    save_plot_as="figures/Human_Lung_Cancer_5K_leiden_2_ggm_module_dotplot_r3.pdf" 
 )
 
 
@@ -354,6 +330,10 @@ sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="ggm_annota
 sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="ggm_annotation_no_activity_no_spatial", palette= adata.uns['module_colors'],
                 save="/Human_Lung_Cancer_5K_No_activity_modules_annotation_no_spatial_r3.pdf",show=True)
 
+
+
+# %%
+adata.obs['leiden_2_ggm'].value_counts()
 
 # %%
 # 逐个可视化各个模块的注释结果
