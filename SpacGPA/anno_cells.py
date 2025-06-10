@@ -23,7 +23,9 @@ from matplotlib.lines import Line2D
 
 #################### support functions ####################
 # construct_spatial_weights 
-def construct_spatial_weights(coords, k_neighbors=6):
+def construct_spatial_weights(
+        coords, 
+        k_neighbors=6) -> sp.csr_matrix:
     """
     Construct a spatial weights matrix using kNN and 1/d as weights.
     The resulting W is NOT row-normalized.
@@ -37,25 +39,44 @@ def construct_spatial_weights(coords, k_neighbors=6):
         W (scipy.sparse.csr_matrix): Spatial weights matrix of shape (N, N).
     """
     N = coords.shape[0]
-    nbrs = NearestNeighbors(n_neighbors=k_neighbors, metric='euclidean').fit(coords)
-    distances, indices_knn = nbrs.kneighbors(coords)
-    
-    # calculate weights
-    with np.errstate(divide='ignore', invalid='ignore'):
-        weights = 1 / distances
-    weights[distances == 0] = 0
-    
-    # construct sparse matrix
-    row_idx = np.repeat(np.arange(N), k_neighbors)
-    col_idx = indices_knn.flatten()
-    data_w = weights.flatten()
-    W = sp.coo_matrix((data_w, (row_idx, col_idx)), shape=(N, N)).tocsr()
-    # set diagonal to zero
+    knn = NearestNeighbors(n_neighbors=k_neighbors, metric="euclidean").fit(coords)
+    dists, idx = knn.kneighbors(coords)
+
+    with np.errstate(divide="ignore"):
+        weight = (1.0 / dists)
+    weight[dists == 0] = 0
+
+    rows = np.repeat(np.arange(N), k_neighbors)
+    cols = idx.reshape(-1)
+    data = weight.reshape(-1)
+
+    rows_sym = cols         
+    cols_sym = rows
+    data_sym = data        
+
+    rows = np.concatenate((rows, rows_sym))
+    cols = np.concatenate((cols, rows_sym)) 
+    data = np.concatenate((data, data_sym))
+
+    W = sp.csr_matrix((data, (rows, cols)), shape=(N, N))
+    W.sum_duplicates()       
     W.setdiag(0)
+
+    row_sums = np.asarray(W.sum(axis=1)).ravel()
+    nz_rows = row_sums != 0
+    inv_row = np.zeros_like(row_sums)
+    inv_row[nz_rows] = 1.0 / row_sums[nz_rows]
+
+    for i in np.where(nz_rows)[0]:
+        start, end = W.indptr[i], W.indptr[i + 1]
+        W.data[start:end] *= inv_row[i]
+
+    W.eliminate_zeros()
     return W
 
+
 # compute_moran
-def compute_moran(x, W):
+def compute_moran(x: np.ndarray, W: sp.csr_matrix) -> float:
     """
     Compute global Moran's I for vector x using the classical formula:
     
@@ -68,15 +89,14 @@ def compute_moran(x, W):
     Returns:
         float: Moran's I value, or np.nan if variance is zero.
     """
-    N = x.shape[0]
-    x_bar = np.mean(x)
-    z = x - x_bar
-    denominator = np.sum(z ** 2)
-    if denominator == 0:
+    x = np.asarray(x).ravel()
+    z = x - x.mean()
+    denom = np.dot(z, z)
+    if denom == 0:
         return np.nan
-    S0 = W.sum()
-    numerator = z.T.dot(W.dot(z))
-    return (N / S0) * (numerator / denominator)
+    num = z @ (W @ z)
+    return num / denom    
+
 
 # calc_border_flags
 def calc_border_flags(coords, k, iqr_factor=1.5):
@@ -381,7 +401,7 @@ def calculate_module_expression(adata,
     if sp.issparse(weighted_expression):
         weighted_expression = weighted_expression.toarray()
     
-    # 8. Calculate the Moran's I for each gene in module_info (如需计算)
+    # 8. Calculate the Moran's I for each gene in module_info
     if calculate_moran:
         coords = adata.obsm[embedding_key]
         W = construct_spatial_weights(coords, k_neighbors=k_neighbors)
@@ -537,19 +557,10 @@ def calculate_gmm_annotations(adata,
         if embedding_key not in adata.obsm:
             raise ValueError(f"{embedding_key} not found in adata.obsm")
         coords = adata.obsm[embedding_key]
-        nbrs = NearestNeighbors(n_neighbors=k_neighbors, metric="euclidean").fit(coords)
-        distances, knn_indices = nbrs.kneighbors(coords)
-        with np.errstate(divide='ignore'):
-            weights = 1 / distances
-        weights[distances == 0] = 0
-        row_idx = np.repeat(np.arange(coords.shape[0]), k_neighbors)
-        col_idx = knn_indices.flatten()
-        data_w = weights.flatten()
-        W = sp.coo_matrix((data_w, (row_idx, col_idx)), shape=(coords.shape[0], coords.shape[0])).tocsr()
-        W.setdiag(0)
+        W = construct_spatial_weights(coords, k_neighbors=k_neighbors)
     else:
-        W = None
         coords = None
+        W = None
     
     # Build mapping from gene to index using adata.var_names
     gene_to_index = {gene: i for i, gene in enumerate(adata.var_names)}
@@ -1698,6 +1709,59 @@ def integrate_annotations_old(adata, ggm_key='ggm',cross_ggm = False,
 
     print(f"Cell annotation completed. Results stored in adata.obs['{result_anno}'].")
 
+# def construct_spatial_weights(coords, k_neighbors=6):
+#     """
+#     Construct a spatial weights matrix using kNN and 1/d as weights.
+#     The resulting W is NOT row-normalized.
+#     Diagonal entries are set to 0.
+    
+#     Parameters:
+#         coords (np.array): Spatial coordinates of cells, shape (N, d).
+#         k_neighbors (int): Number of nearest neighbors.
+        
+#     Returns:
+#         W (scipy.sparse.csr_matrix): Spatial weights matrix of shape (N, N).
+#     """
+#     N = coords.shape[0]
+#     nbrs = NearestNeighbors(n_neighbors=k_neighbors, metric='euclidean').fit(coords)
+#     distances, indices_knn = nbrs.kneighbors(coords)
+    
+#     # calculate weights
+#     with np.errstate(divide='ignore', invalid='ignore'):
+#         weights = 1 / distances
+#     weights[distances == 0] = 0
+    
+#     # construct sparse matrix
+#     row_idx = np.repeat(np.arange(N), k_neighbors)
+#     col_idx = indices_knn.flatten()
+#     data_w = weights.flatten()
+#     W = sp.coo_matrix((data_w, (row_idx, col_idx)), shape=(N, N)).tocsr()
+#     # set diagonal to zero
+#     W.setdiag(0)
+#     return W
+
+# def compute_moran(x, W):
+#     """
+#     Compute global Moran's I for vector x using the classical formula:
+    
+#          I = (N / S0) * (sum_{i,j} w_{ij}(x_i - mean(x)) (x_j - mean(x)) / sum_i (x_i - mean(x))^2)
+    
+#     Parameters:
+#         x (np.array): 1D expression vector for a gene, shape (N,).
+#         W (scipy.sparse.csr_matrix): Spatial weights matrix, shape (N, N), with zero diagonal.
+    
+#     Returns:
+#         float: Moran's I value, or np.nan if variance is zero.
+#     """
+#     N = x.shape[0]
+#     x_bar = np.mean(x)
+#     z = x - x_bar
+#     denominator = np.sum(z ** 2)
+#     if denominator == 0:
+#         return np.nan
+#     S0 = W.sum()
+#     numerator = z.T.dot(W.dot(z))
+#     return (N / S0) * (numerator / denominator)
 
 # def calculate_gmm_annotations(adata, 
 #                               ggm_key='ggm',
