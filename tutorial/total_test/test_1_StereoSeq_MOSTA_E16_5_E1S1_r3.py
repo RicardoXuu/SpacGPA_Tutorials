@@ -107,19 +107,6 @@ ggm.modules_summary.to_csv("data/MOSTA_E16.5_E1S1_ggm_modules_summary_r3.csv")
 
 
 # %%
-# 重新读取数据
-del adata
-adata = sc.read_h5ad("/dta/ypxu/ST_GGM/VS_Code/ST_GGM_dev_1/data/MOSTA/E16.5_E1S1.MOSTA.h5ad")
-adata.var_names_make_unique()
-print(adata.X.shape)
-
-adata.X = adata.layers['count']
-
-sc.pp.normalize_total(adata, target_sum=1e4)
-sc.pp.log1p(adata)
-
-
-# %%
 # 计算模块的加权表达值
 start_time = time.time()
 sg.calculate_module_expression(adata, 
@@ -149,20 +136,6 @@ sc.tl.leiden(adata, resolution=1, key_added='leiden_1_ggm')
 sc.tl.louvain(adata, resolution=0.5, key_added='louvan_0.5_ggm')
 sc.tl.louvain(adata, resolution=1, key_added='louvan_1_ggm')
 print(f"Time: {time.time() - start_time:.5f} s")
-
-# %%
-# 可视化并保存聚类结果
-sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation",
-                save="/MOSTA_E16_5_E1S1_raw_cell_type_annotation_r3.pdf",show=True)
-sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="leiden_0.5_ggm", 
-              save="/MOSTA_E16_5_E1S1_ggm_modules_leiden_0.5_r3.pdf",show=True)
-sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="leiden_1_ggm",
-                save="/MOSTA_E16_5_E1S1_ggm_modules_leiden_1_r3.pdf",show=True)
-sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="louvan_0.5_ggm",
-                save="/MOSTA_E16_5_E1S1_ggm_modules_louvan_0.5_r3.pdf",show=True)
-sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="louvan_1_ggm",
-                save="/MOSTA_E16_5_E1S1_ggm_modules_louvan_1_r3.pdf",show=True)
-
 
 
 # %%
@@ -220,25 +193,25 @@ adata.uns['module_filtering']['type_tag'].value_counts()
 
 # %%
 # 计算并可视化模块之间的相似性
-mod_cor = sg.calculating_module_similarity(adata,
-                                ggm_key='ggm',
-                                use_smooth=True,
-                                corr_method='pearson',
-                                linkage_method='average',
-                                return_summary=True,
-                                plot_heatmap=True,
-                                heatmap_metric='correlation',   
-                                fig_height=26,
-                                fig_width=28,
-                                dendrogram_height=0.1,
-                                dendrogram_space=0.05,
-                                axis_fontsize=12,
-                                axis_labelsize=15,
-                                legend_fontsize=12,
-                                legend_labelsize=15,
-                                cmap_name='coolwarm',
-                                save_plot_as="figures/MOSTA_E16.5_E1S1_module_corr_similarity_r3.pdf",  
-                                )
+mod_cor = sg.module_similarity_plot(adata,
+                                    ggm_key='ggm',
+                                    use_smooth=True,
+                                    corr_method='pearson',
+                                    linkage_method='average',
+                                    return_summary=True,
+                                    plot_heatmap=True,
+                                    heatmap_metric='correlation',   
+                                    fig_height=26,
+                                    fig_width=28,
+                                    dendrogram_height=0.1,
+                                    dendrogram_space=0.05,
+                                    axis_fontsize=12,
+                                    axis_labelsize=15,
+                                    legend_fontsize=12,
+                                    legend_labelsize=15,
+                                    cmap_name='coolwarm',
+                                    save_plot_as="figures/MOSTA_E16.5_E1S1_module_corr_similarity_r3.pdf",  
+                                    )
 
 
 # %%
@@ -285,20 +258,7 @@ sg.module_dot_plot(
     save_plot_as="figures/MOSTA_E16.5_E1S1_raw_cell_type_module_dotplot_r3.pdf",
 )
 
-# %%
-# 展示部分模块的注释结果
-module_show = ['M4', 'M29', 'M9', 'M22', 'M23', 'M44', 'M1', 'M2', 
-               'M32', 'M64', 'M21', 'M17', 'M70', 'M52', 'M43', 'M6','M67','M56','M34',
-               'M27', 'M18', 'M42', 'M39', 'M3', 'M33']
-for module in module_show:
-    sc.pl.spatial(adata, spot_size=1.2, frameon = False, color_map="Reds", 
-                  color=[f"{module}_exp", f"{module}_exp_trim", 
-                         f"{module}_anno", f"{module}_anno_smooth"],show=True)
 
-
-
-# %%
-module_used = adata.uns['module_filtering'][adata.uns['module_filtering']['type_tag']=='cell_identity_module']['module_id'].tolist()
 
 # %%
 # 合并注释（考虑空间坐标和模块表达值）
@@ -374,24 +334,10 @@ adata.obs.to_csv("data/MOSTA_E16.5_E1S1_ggm_annotation_r3.csv")
 adata.write("data/MOSTA_E16.5_E1S1_ggm_anno_r3.h5ad")
 
 
+
+
 # %%
-# 注释结果可视化并保存可视化结果
-sg.assign_module_colors(adata,ggm_key='ggm',seed=5)
-sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="ggm_annotation", palette=adata.uns['module_colors'],
-              save="/MOSTA_E16_5_E1S1_All_modules_annotation_r3.pdf",show=True)
-sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="ggm_annotation_filtered", palette=adata.uns['module_colors'],
-                save="/MOSTA_E16_5_E1S1_Filtered_modules_annotation_r3.pdf",show=True)
-sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="ggm_annotation_no_activity", palette=adata.uns['module_colors'],
-                save="/MOSTA_E16_5_E1S1_No_activity_modules_annotation_r3.pdf",show=True)
-sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="ggm_annotation_no_spatial", palette=adata.uns['module_colors'],
-                save="/MOSTA_E16_5_E1S1_All_modules_annotation_no_spatial_r3.pdf",show=True)
-sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="ggm_annotation_filtered_no_spatial", palette=adata.uns['module_colors'],
-                save="/MOSTA_E16_5_E1S1_Filtered_modules_annotation_no_spatial_r3.pdf",show=True)
-sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="ggm_annotation_no_activity_no_spatial", palette=adata.uns['module_colors'],
-                save="/MOSTA_E16_5_E1S1_No_activity_modules_annotation_no_spatial_r3.pdf",show=True)
-
-
-
+module_used = adata.uns['module_filtering'][adata.uns['module_filtering']['type_tag']=='cell_identity_module']['module_id'].tolist()
 
 # %%
 # 测试新版整合函数
@@ -417,12 +363,6 @@ print(f"Time: {time.time() - start_time:.5f} s")
 
 
 # %%
-sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation_new_id", show=True, palette=adata.uns['module_colors'],
-              save="/MOSTA_E16_5_E1S1_ggm_modules_annotation_new_id_r3.pdf")
-
-
-
-# %%
 # 测试新版函数
 start_time = time.time()
 sg.integrate_annotations(
@@ -443,36 +383,3 @@ sg.integrate_annotations(
     random_state=0)
 print(f"Time: {time.time() - start_time:.5f} s")
 
-
-# %%
-sc.pl.spatial(adata, spot_size=1.2, title= "", frameon = False, color="annotation_new_all", show=True, palette=adata.uns['module_colors'],
-              save="/MOSTA_E16_5_E1S1_ggm_modules_annotation_new_all_r3.pdf")
-
-
-
-
-# %%
-# 逐个可视化各个模块的注释结果
-anno_modules = adata.uns['module_stats']['module_id']
-pdf_file = "figures/MOSTA/E16_5_E1S1_all_modules_Anno_r3.pdf"
-c = canvas.Canvas(pdf_file, pagesize=letter)
-image_files = []
-for module in anno_modules:
-    plt.figure()    
-    sc.pl.spatial(adata, spot_size=1.2, frameon = False, color_map="Reds", 
-                  color=[f"{module}_exp", f"{module}_exp_trim", f"{module}_anno", f"{module}_anno_smooth"],show=False)
-    show_png_file = f"figures/MOSTA/E16_5_E1S1_{module}_Anno_r3.png"
-    plt.savefig(show_png_file, format="png", dpi=300, bbox_inches="tight")
-    plt.close()
-    image_files.append(show_png_file)
-
-for image_file in image_files:
-    img = Image.open(image_file)
-    c.setPageSize((img.width, img.height))
-    c.drawImage(image_file, 0, 0, width=img.width, height=img.height)
-    c.showPage()
-
-# 保存PDF文件
-c.save()    
-
-# %%

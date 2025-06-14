@@ -114,18 +114,6 @@ ggm
 # %%
 ggm.modules_summary.to_csv("data/Mouse_Pup_5K_ggm_modules_summary_r3.csv")
 
-# %%
-# 重新读取数据
-adata = sc.read_10x_h5('/dta/ypxu/ST_GGM/Raw_Datasets/Xenium/Mouse_Pup_5K/cell_feature_matrix.h5')
-adata.var_names_make_unique()
-adata.var_names = adata.var['gene_ids']
-meta = pd.read_csv('/dta/ypxu/ST_GGM/Raw_Datasets/Xenium/Mouse_Pup_5K/cells.csv.gz')
-adata.obs = meta
-adata.obsm['spatial'] = adata.obs[['x_centroid','y_centroid']].values*[-1,-1]
-
-sc.pp.log1p(adata)
-print(adata.X.shape)
-
 
 # %%
 # 计算模块的加权表达值
@@ -159,18 +147,6 @@ sc.tl.leiden(adata, resolution=1, key_added='leiden_1_ggm')
 sc.tl.louvain(adata, resolution=0.5, key_added='louvan_0.5_ggm')
 sc.tl.louvain(adata, resolution=1, key_added='louvan_1_ggm')
 print(f"Time: {time.time() - start_time:.5f} s")
-
-
-# %%
-# 可视化并保存聚类结果
-sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="leiden_0.5_ggm", 
-              save="/Mouse_Pup_5K_ggm_modules_leiden_0.5_r3.pdf",show=True)
-sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="leiden_1_ggm",
-                save="/Mouse_Pup_5K_ggm_modules_leiden_1_r3.pdf",show=True)
-sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="louvan_0.5_ggm",
-                save="/Mouse_Pup_5K_ggm_modules_louvan_0.5_r3.pdf",show=True)
-sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="louvan_1_ggm",
-                save="/Mouse_Pup_5K_ggm_modules_louvan_1_r3.pdf",show=True)
 
 
 # %%
@@ -225,25 +201,25 @@ adata.uns['module_filtering']['type_tag'].value_counts()
 
 # %%
 # 计算并可视化模块之间的相似性
-mod_cor = sg.calculating_module_similarity(adata,
-                                ggm_key='ggm',
-                                use_smooth=True,
-                                corr_method='pearson',
-                                linkage_method='average',
-                                return_summary=True,
-                                plot_heatmap=True,
-                                heatmap_metric='correlation',   # 'correlation' or 'jaccard'
-                                fig_height=20,
-                                fig_width=21,
-                                dendrogram_height=0.1,
-                                dendrogram_space=0.06,
-                                axis_fontsize=12,
-                                axis_labelsize=15,
-                                legend_fontsize=12,
-                                legend_labelsize=15,
-                                cmap_name='coolwarm',               # must be one of the 24 diverging maps
-                                save_plot_as="figures/Mouse_Pup_5K_module_corr_similarity_r3.pdf"  
-                                )
+mod_cor = sg.module_similarity_plot(adata,
+                                    ggm_key='ggm',
+                                    use_smooth=True,
+                                    corr_method='pearson',
+                                    linkage_method='average',
+                                    return_summary=True,
+                                    plot_heatmap=True,
+                                    heatmap_metric='correlation',   # 'correlation' or 'jaccard'
+                                    fig_height=20,
+                                    fig_width=21,
+                                    dendrogram_height=0.1,
+                                    dendrogram_space=0.06,
+                                    axis_fontsize=12,
+                                    axis_labelsize=15,
+                                    legend_fontsize=12,
+                                    legend_labelsize=15,
+                                    cmap_name='coolwarm',               # must be one of the 24 diverging maps
+                                    save_plot_as="figures/Mouse_Pup_5K_module_corr_similarity_r3.pdf"  
+                                    )
 
 # %%
 # 可视化模块在各个leiden分群里的表达气泡图
@@ -338,51 +314,9 @@ sg.integrate_annotations_noweight(adata,
 # 保存注释结果
 adata.obs.to_csv("data/Mouse_Pup_5K_ggm_annotation_r3.csv")
 
-
 # %%
 # 保存adata
 adata.write("data/Mouse_Pup_5K_ggm_anno_r3.h5ad")
 
-# %%
-# 注释结果可视化并保存可视化结果
-sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="ggm_annotation", palette= adata.uns['module_colors'],
-              save="/Mouse_Pup_5K_All_modules_annotation_r3.pdf",show=True)
-sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="ggm_annotation_filtered", palette= adata.uns['module_colors'],
-                save="/Mouse_Pup_5K_Filtered_modules_annotation_r3.pdf",show=True)
-sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="ggm_annotation_no_activity", palette= adata.uns['module_colors'],
-                save="/Mouse_Pup_5K_No_activity_modules_annotation_r3.pdf",show=True)
-sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="ggm_annotation_no_spatial", palette= adata.uns['module_colors'],
-                save="/Mouse_Pup_5K_All_modules_annotation_no_spatial_r3.pdf",show=True)
-sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="ggm_annotation_filtered_no_spatial", palette= adata.uns['module_colors'],
-                save="/Mouse_Pup_5K_Filtered_modules_annotation_no_spatial_r3.pdf",show=True)
-sc.pl.spatial(adata, spot_size=12, title= "", frameon = False, color="ggm_annotation_no_activity_no_spatial", palette= adata.uns['module_colors'],
-                save="/Mouse_Pup_5K_No_activity_modules_annotation_no_spatial_r3.pdf",show=True)
-
-
-
-# %%
-# 逐个可视化各个模块的注释结果
-anno_modules = adata.uns['module_stats']['module_id']
-pdf_file = "figures/xenium/Mouse_Pup_5K_all_modules_Anno_r3.pdf"
-c = canvas.Canvas(pdf_file, pagesize=letter)
-image_files = []
-for module in anno_modules:
-    plt.figure()    
-    sc.pl.spatial(adata, spot_size=12, frameon = False, color_map="Reds", 
-                  color=[f"{module}_exp",f"{module}_exp_trim",f"{module}_anno",f"{module}_anno_smooth"],show=False)
-    show_png_file = f"figures/xenium/Mouse_Pup_5K_{module}_Anno_r3.png"
-    plt.savefig(show_png_file, format="png", dpi=300, bbox_inches="tight")
-    plt.close()
-    image_files.append(show_png_file)
-
-for image_file in image_files:
-    img = Image.open(image_file)
-    c.setPageSize((img.width, img.height))
-    c.drawImage(image_file, 0, 0, width=img.width, height=img.height)
-    c.showPage()
-
-
-# Save the PDF 
-c.save()    
 
 # %%

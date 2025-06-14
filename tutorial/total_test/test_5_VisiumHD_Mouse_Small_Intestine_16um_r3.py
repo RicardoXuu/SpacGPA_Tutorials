@@ -112,18 +112,6 @@ ggm
 ggm.modules_summary.to_csv("data/Mouse_Small_Intestine_FFPE_ggm_modules_summary_r3.csv")
 
 # %%
-# 重新读取数据
-del adata
-adata = sc.read_visium("/dta/ypxu/ST_GGM/Raw_Datasets/visium_HD/Mouse_Small_Intestine_FFPE/binned_outputs/square_016um/",
-                       count_file="filtered_feature_bc_matrix.h5")
-adata.var_names_make_unique()
-adata.var_names = adata.var['gene_ids']
-
-sc.pp.normalize_total(adata, target_sum=1e4)
-sc.pp.log1p(adata)
-print(adata.X.shape)
-
-# %%
 # 计算模块的加权表达值
 start_time = time.time()
 sg.calculate_module_expression(adata, 
@@ -154,19 +142,6 @@ sc.tl.leiden(adata, resolution=1, key_added='leiden_1_ggm')
 sc.tl.louvain(adata, resolution=0.5, key_added='louvan_0.5_ggm')
 sc.tl.louvain(adata, resolution=1, key_added='louvan_1_ggm')
 print(f"Time: {time.time() - start_time:.5f} s")
-
-
-# %%
-# 可视化并保存可视化结果
-sc.pl.spatial(adata, size=1.2, alpha_img=0.5, title= "", frameon = False, color="leiden_0.5_ggm", 
-              save="/Mouse_Small_Intestine_FFPE_ggm_modules_leiden_0.5_r3.pdf",show=True)
-sc.pl.spatial(adata, size=1.2, alpha_img=0.5, title= "", frameon = False, color="leiden_1_ggm",
-                save="/Mouse_Small_Intestine_FFPE_ggm_modules_leiden_1_r3.pdf",show=True)
-sc.pl.spatial(adata, size=1.2, alpha_img=0.5, title= "", frameon = False, color="louvan_0.5_ggm",
-                save="/Mouse_Small_Intestine_FFPE_ggm_modules_louvan_0.5_r3.pdf",show=True)
-sc.pl.spatial(adata, size=1.2, alpha_img=0.5, title= "", frameon = False, color="louvan_1_ggm",
-                save="/Mouse_Small_Intestine_FFPE_ggm_modules_louvan_1_r3.pdf",show=True)
-
 
 
 # %%
@@ -226,25 +201,25 @@ adata.uns['module_filtering']['type_tag'].value_counts()
 
 # %%
 # 计算并可视化模块之间的相似性
-mod_cor = sg.calculating_module_similarity(adata,
-                                ggm_key='ggm',
-                                use_smooth=True,
-                                corr_method='pearson',
-                                linkage_method='average',
-                                return_summary=True,
-                                plot_heatmap=True,
-                                heatmap_metric='correlation',   # 'correlation' or 'jaccard'
-                                fig_height=18,
-                                fig_width=19,
-                                dendrogram_height=0.15,
-                                dendrogram_space=0.08,
-                                axis_fontsize=12,
-                                axis_labelsize=15,
-                                legend_fontsize=12,
-                                legend_labelsize=15,
-                                cmap_name='coolwarm',               # must be one of the 24 diverging maps
-                                save_plot_as="figures/Mouse_Small_Intestine_FFPE_module_corr_similarity_r3.pdf"  
-                                )
+mod_cor = sg.module_similarity_plot(adata,
+                                    ggm_key='ggm',
+                                    use_smooth=True,
+                                    corr_method='pearson',
+                                    linkage_method='average',
+                                    return_summary=True,
+                                    plot_heatmap=True,
+                                    heatmap_metric='correlation',   # 'correlation' or 'jaccard'
+                                    fig_height=18,
+                                    fig_width=19,
+                                    dendrogram_height=0.15,
+                                    dendrogram_space=0.08,
+                                    axis_fontsize=12,
+                                    axis_labelsize=15,
+                                    legend_fontsize=12,
+                                    legend_labelsize=15,
+                                    cmap_name='coolwarm',               # must be one of the 24 diverging maps
+                                    save_plot_as="figures/Mouse_Small_Intestine_FFPE_module_corr_similarity_r3.pdf"  
+                                    )
 
 # %%
 # 可视化模块在各个leiden分群里的表达气泡图
@@ -342,46 +317,3 @@ adata.obs.to_csv("data/Mouse_Small_Intestine_FFPE_ggm_annotation_r3.csv")
 adata.write("data/Mouse_Small_Intestine_FFPE_ggm_anno_r3.h5ad")
 
 
-# %%
-# 注释结果可视化并保存可视化结果
-sc.pl.spatial(adata, size=1.2, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation",palette= adata.uns['module_colors'], 
-              save="/Mouse_Small_Intestine_FFPE_All_modules_annotation_r3.pdf",show=True)
-sc.pl.spatial(adata, size=1.2, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_filtered",palette= adata.uns['module_colors'],
-                save="/Mouse_Small_Intestine_FFPE_Filtered_modules_annotation_r3.pdf",show=True)
-sc.pl.spatial(adata, size=1.2, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_no_activity",palette= adata.uns['module_colors'],
-                save="/Mouse_Small_Intestine_FFPE_No_activity_modules_annotation_r3.pdf",show=True)
-sc.pl.spatial(adata, size=1.2, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_no_spatial",palette= adata.uns['module_colors'],
-                save="/Mouse_Small_Intestine_FFPE_All_modules_annotation_no_spatial_r3.pdf",show=True)
-sc.pl.spatial(adata, size=1.2, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_filtered_no_spatial",palette= adata.uns['module_colors'],
-                save="/Mouse_Small_Intestine_FFPE_Filtered_modules_annotation_no_spatial_r3.pdf",show=True)
-sc.pl.spatial(adata, size=1.2, alpha_img=0.5, title= "", frameon = False, color="ggm_annotation_no_activity_no_spatial",palette= adata.uns['module_colors'],
-                save="/Mouse_Small_Intestine_FFPE_No_activity_modules_annotation_no_spatial_r3.pdf",show=True)
-
-
-
-# %%
-# 逐个可视化各个模块的注释结果
-anno_modules = adata.uns['module_stats']['module_id']
-pdf_file = "figures/visium_HD/Mouse_Small_Intestine_FFPE_all_modules_Anno_r3.pdf"
-c = canvas.Canvas(pdf_file, pagesize=letter)
-image_files = []
-for module in anno_modules:
-    plt.figure()    
-    sc.pl.spatial(adata, size=1.2, alpha_img=0.5, frameon = False, color_map="Reds", 
-                  color=[f"{module}_exp",f"{module}_exp_trim",f"{module}_anno",f"{module}_anno_smooth"],show=False)
-    show_png_file = f"figures/visium_HD/Mouse_Small_Intestine_FFPE_{module}_Anno_r3.png"
-    plt.savefig(show_png_file, format="png", dpi=300, bbox_inches="tight")
-    plt.close()
-    image_files.append(show_png_file)
-
-for image_file in image_files:
-    img = Image.open(image_file)
-    c.setPageSize((img.width, img.height))
-    c.drawImage(image_file, 0, 0, width=img.width, height=img.height)
-    c.showPage()
-
-
-# Save the PDF   
-c.save()    
-
-# %%
