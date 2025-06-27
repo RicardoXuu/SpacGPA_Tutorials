@@ -269,6 +269,19 @@ def calculate_module_expression(adata,
                      for each module, extract the top GO terms from ggm.go_enrichment and integrate them into module_df.
         set_module_colors: bool, if True, assign colors to modules and store in adata.uns['module_colors'].
     """
+    # Make sure adata is an AnnData object and adata.X is a csr_matrix
+    from anndata import AnnData
+    if isinstance(adata, AnnData):
+        if adata.X is None or adata.var_names is None:
+            raise ValueError("AnnData object must have X and var_names.")
+        if not np.issubdtype(adata.X.dtype, np.number):
+            raise ValueError("Expression data must be numeric.")
+        x_matrix = adata.X
+        if isinstance(x_matrix, np.matrix):
+            x_matrix = sp.csr_matrix(np.asarray(x))
+    else:
+        raise ValueError("adata must be an AnnData object.")
+
     # get module information
     if isinstance(ggm_obj, pd.DataFrame):
         module_df = ggm_obj.copy()
