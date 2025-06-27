@@ -277,8 +277,14 @@ def calculate_module_expression(adata,
         if not np.issubdtype(adata.X.dtype, np.number):
             raise ValueError("Expression data must be numeric.")
         x_matrix = adata.X
-        if isinstance(x_matrix, np.matrix):
-            x_matrix = sp.csr_matrix(np.asarray(x))
+        if sp.issparse(x_matrix):
+            x_matrix = x_matrix.tocsr()
+        elif isinstance(x_matrix, np.matrix):
+            print("Converting np.matrix to csr_matrix...")
+            x_matrix = sp.csr_matrix(np.asarray(x_matrix))
+        elif isinstance(x_matrix, np.ndarray):
+            print("Converting np.ndarray to csr_matrix...")
+            x_matrix = sp.csr_matrix(x_matrix)
     else:
         raise ValueError("adata must be an AnnData object.")
 
@@ -410,7 +416,7 @@ def calculate_module_expression(adata,
     transformation_matrix = transformation_matrix.tocsr()
     
     # 7. Multiply adata by the transformation matrix to obtain the weighted-average-expression matrix
-    weighted_expression = adata.X.dot(transformation_matrix)
+    weighted_expression = x_matrix.dot(transformation_matrix)
     if sp.issparse(weighted_expression):
         weighted_expression = weighted_expression.toarray()
     
@@ -428,10 +434,10 @@ def calculate_module_expression(adata,
         moran_values = []
         for gene in module_df['gene']:
             i = gene_to_index[gene]
-            if sp.issparse(adata.X):
-                x_gene = adata.X[:, i].toarray().flatten()
+            if sp.issparse(x_matrix):
+                x_gene = x_matrix[:, i].toarray().flatten()
             else:
-                x_gene = adata.X[:, i]
+                x_gene = x_matrix[:, i]
             I_gene = compute_moran(x_gene, W)
             moran_values.append(I_gene)
         module_df['module_moran_I'] = module_df['module_id'].map(module_moran)

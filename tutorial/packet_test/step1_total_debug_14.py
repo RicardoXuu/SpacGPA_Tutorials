@@ -58,6 +58,47 @@ print(adata.uns['module_info'])
 
 
 # %%
+bdata = adata.copy()
+bdata.X = bdata.X.todense() 
+print(type(bdata.X))
+# %%
+start_time = time.time()
+sg.calculate_module_expression(bdata, 
+                               ggm, 
+                               ggm_key='ggm',
+                               top_genes=30,
+                               weighted=True,
+                               calculate_moran=False,
+                               embedding_key='spatial',
+                               k_neighbors=6,
+                               add_go_anno=5,
+                               )
+print(f"Time: {time.time() - start_time:.5f} s")
+print(adata.uns['module_info'])
+
+
+# %%
+bdata = adata.copy()
+bdata.X = bdata.X.toarray() 
+print(type(bdata.X))
+# %%
+start_time = time.time()
+sg.calculate_module_expression(bdata, 
+                               ggm, 
+                               ggm_key='ggm',
+                               top_genes=30,
+                               weighted=True,
+                               calculate_moran=False,
+                               embedding_key='spatial',
+                               k_neighbors=6,
+                               add_go_anno=5,
+                               )
+print(f"Time: {time.time() - start_time:.5f} s")
+print(adata.uns['module_info'])
+
+
+
+# %%
 # 计算GMM注释
 start_time = time.time()
 sg.calculate_gmm_annotations(adata, 

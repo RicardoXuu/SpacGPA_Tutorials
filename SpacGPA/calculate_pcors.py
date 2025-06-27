@@ -150,7 +150,7 @@ def calculate_covariance_in_chunks(x, chunk_size, device, dtype=torch.float32):
         # Update cov_all in chunks to save memory
         for start_col in range(0, ncol, chunk_size):
             end_col = min(start_col + chunk_size, ncol)
-            cov_all[:, start_col:end_col] /= row_counts
+            cov_all[:, start_col:end_col] /= (row_counts - 1)
             # Use torch.ger to ensure dimensions match
             outer_chunk = torch.ger(row_means, row_means[start_col:end_col])
             cov_all[:, start_col:end_col] -= outer_chunk
@@ -159,7 +159,7 @@ def calculate_covariance_in_chunks(x, chunk_size, device, dtype=torch.float32):
             torch.cuda.empty_cache()
 
         # Ensure that results are properly finalized
-        cov_all /= row_counts
+        cov_all /= (row_counts - 1)
 
         # Return the result inside try block
         return cov_all

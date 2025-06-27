@@ -228,18 +228,23 @@ class create_ggm:
             if not np.issubdtype(x.X.dtype, np.number):
                 raise ValueError("Expression data must be numeric.")
             x_matrix = x.X
-            if isinstance(x_matrix, np.matrix):
-                x_matrix = sp.csr_matrix(np.asarray(x))
-            elif isinstance(x, np.ndarray):
-                x_matrix = sp.csr_matrix(x)
+            if sp.issparse(x_matrix):
+                x_matrix = x_matrix.tocsr()
+            elif isinstance(x_matrix, np.matrix):
+                print("Converting np.matrix to csr_matrix...")
+                x_matrix = sp.csr_matrix(np.asarray(x_matrix))
+            elif isinstance(x_matrix, np.ndarray):
+                print("Converting np.ndarray to csr_matrix...")
+                x_matrix = sp.csr_matrix(x_matrix)
             gene_name = np.array(x.var_names)
             sample_name = np.array(x.obs_names)
+
         elif isinstance(x, np.matrix):
             x_matrix = sp.csr_matrix(np.asarray(x))
         elif isinstance(x, np.ndarray): 
             x_matrix = sp.csr_matrix(x)
         elif sp.issparse(x):
-            x_matrix = x_matrix    
+            x_matrix = x.tocsr()    
         else:
             raise ValueError("x must be a 2D cell x gene matrix(accepted formats include scipy sparse CSR matrix, numpy ndarray) or an AnnData object.")
         
