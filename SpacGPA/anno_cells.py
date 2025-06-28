@@ -1,16 +1,15 @@
 
-import scanpy as sc
 import pandas as pd
 import numpy as np
 import scipy.sparse as sp
 import networkx as nx
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-import itertools
 import warnings
 import leidenalg
 import sys
 import random
+from anndata import AnnData
 from sklearn.preprocessing import StandardScaler
 from sklearn.mixture import GaussianMixture
 from scipy.stats import skew, rankdata
@@ -18,7 +17,6 @@ from igraph import Graph
 from sklearn.neighbors import NearestNeighbors, KernelDensity
 from matplotlib import colors as mcolors
 from scanpy.plotting.palettes import default_20, vega_10, vega_20
-from matplotlib.lines import Line2D
 
 
 #################### support functions ####################
@@ -270,7 +268,6 @@ def calculate_module_expression(adata,
         set_module_colors: bool, if True, assign colors to modules and store in adata.uns['module_colors'].
     """
     # Make sure adata is an AnnData object and adata.X is a csr_matrix
-    from anndata import AnnData
     if isinstance(adata, AnnData):
         if adata.X is None or adata.var_names is None:
             raise ValueError("AnnData object must have X and var_names.")

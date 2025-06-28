@@ -2,7 +2,6 @@ import torch
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
-from anndata import AnnData
 import time
 import gc
 

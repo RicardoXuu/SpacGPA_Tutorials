@@ -2,7 +2,6 @@ import numpy as np
 import pandas as pd
 import networkx as nx
 import torch
-import sys
 import gc
 import itertools
 import scanpy as sc
