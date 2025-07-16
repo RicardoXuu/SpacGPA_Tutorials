@@ -170,6 +170,35 @@ def calculate_covariance_in_chunks(x, chunk_size, device, dtype=torch.float32):
         torch.cuda.empty_cache()
 
 
+
+# def calculate_covariance_in_chunks(x_csr, chunk_size=1024, device='cuda', dtype=torch.float32):
+#     n, p = x_csr.shape
+#     mu = torch.tensor((x_csr.sum(axis=0) / n).A1, dtype=dtype, device=device)
+#     cov = torch.zeros((p, p), dtype=dtype, device=device)
+
+#     for c0 in range(0, p, chunk_size):
+#         c1 = min(c0 + chunk_size, p)
+#         B = torch.tensor(x_csr[:, c0:c1].toarray(), dtype=dtype, device=device)
+#         B -= mu[c0:c1]
+#         cov[c0:c1, c0:c1] = B.T @ B                 # 对角块
+
+#         for d0 in range(c1, p, chunk_size):              # 非对角块
+#             d1 = min(d0 + chunk_size, p)
+#             D = torch.tensor(x_csr[:, d0:d1].toarray(), dtype=dtype, device=device)
+#             D -= mu[d0:d1]
+#             blk = B.T @ D
+#             cov[c0:c1, d0:d1] = blk
+#             cov[d0:d1, c0:c1] = blk.T
+#             del D, blk
+#         del B
+#         torch.cuda.empty_cache()
+
+#     cov /= (n - 1)
+#     return cov
+
+
+
+
 def calculate_pcors_pytorch(x, round_num, selected_num, gene_name, project_name, cut_off_pcor, cut_off_coex_cell,seed, 
                             run_mode=1, double_precision=False, use_chunking=True, chunk_size=1000, stop_threshold=0):
     """
