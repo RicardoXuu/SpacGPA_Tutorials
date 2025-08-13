@@ -35,14 +35,23 @@ meta = pd.read_csv('/dta/ypxu/ST_GGM/Raw_Datasets/Xenium/Mouse_Pup_5K/cells.csv.
 adata.obs = meta
 adata.obsm['spatial'] = adata.obs[['x_centroid','y_centroid']].values*[-1,-1]
 
-sc.pp.log1p(adata)
-print(adata.X.shape)
+# sc.pp.log1p(adata)
+# print(adata.X.shape)
 
-sc.pp.filter_cells(adata, min_genes=100)
-print(adata.X.shape)
+# sc.pp.filter_cells(adata, min_genes=100)
+# print(adata.X.shape)
 
-sc.pp.filter_genes(adata,min_cells=10)
-print(adata.X.shape)
+# sc.pp.filter_genes(adata,min_cells=10)
+# print(adata.X.shape)
+
+
+# %%
+adata.obsm['spatial'].max(axis=0) 
+
+# %%
+adata.obsm['spatial'].min(axis=0) 
+
+
 
 # %%
 # 使用 GPU 计算GGM，double_precision=False
