@@ -12,6 +12,113 @@ from scipy.stats import hypergeom
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "Ref_for_Enrichment")
 
+# ensure_gene_symbol_table 
+def ensure_gene_symbol_table(species, species_taxonomy_id, gene_symbl_file) -> dict:
+    """
+    Ensure a local Ensembl->symbol lookup exists for the given species.
+    1) If file exists, load and return mapping.
+    2) Else, fetch ALL genes (with Ensembl IDs) for the species from MyGene, save to gzip TSV, then return.
+       File format (no header): <ensembl_gene_id>\t<symbol>
+    """
+    # Make sure the species name is set
+    if species is None :
+        raise ValueError("Please provide a common name for the species you are searching for.")
+    if species_taxonomy_id is None and species not in ["human", "mouse", "rat", "fruitfly", "nematode", "zebrafish", "thale-cress", "frog", "pig"]:
+        raise ValueError(f"Please provide the NCBI taxonomy ID of {species} by setting species_taxonomy_id.")
+
+    # 1) cache first
+    if os.path.exists(gene_symbl_file):
+        df = pd.read_csv(
+            gene_symbl_file, sep="\t", header=None, names=["ensembl", "symbol"],
+            dtype=str, comment="#", quoting=3
+        ).dropna(subset=["ensembl"]).drop_duplicates(subset=["ensembl"], keep="first")
+        return df.set_index("ensembl")["symbol"].to_dict()
+
+    print(f"\n[MyGene] Building ALL-genes Ensembl→symbol table for species='{species}' ...")
+    time.sleep(1)
+
+    import mygene
+    mg = mygene.MyGeneInfo()
+    mapping = {}
+
+    # fold hits into mapping (first-win; ensembl can be dict or list)
+    def add_hits(hits):
+        for doc in hits:
+            if not isinstance(doc, dict):
+                continue
+            sym = doc.get("symbol")
+            ens = doc.get("ensembl")
+            if isinstance(ens, dict):
+                gid = ens.get("gene")
+                if isinstance(gid, str) and gid not in mapping:
+                    mapping[gid] = sym if isinstance(sym, str) and sym else gid
+            elif isinstance(ens, list):
+                for e in ens:
+                    if isinstance(e, dict):
+                        gid = e.get("gene")
+                        if isinstance(gid, str) and gid not in mapping:
+                            mapping[gid] = sym if isinstance(sym, str) and sym else gid
+
+    def pull_all(q_string: str):
+        # try fetch_all (streaming)
+        try:
+            if species_taxonomy_id is not None:
+                cursor = mg.query(q=q_string, species=species_taxonomy_id,
+                                fields="symbol,ensembl.gene",
+                                size=1000, fetch_all=True)
+            elif species_taxonomy_id is None:
+                cursor = mg.query(q=q_string, species=species,
+                                fields="symbol,ensembl.gene",
+                                size=1000, fetch_all=True)
+            got = False
+            for chunk in cursor:
+                if isinstance(chunk, dict) and "hits" in chunk:
+                    hits = chunk["hits"]
+                elif isinstance(chunk, list):
+                    hits = chunk
+                else:
+                    hits = [chunk]
+                if hits:
+                    got = True
+                    add_hits(hits)
+            if got:
+                return
+        except Exception:
+            pass
+        # fallback: paginated
+        try:
+            from_ = 0
+            size = 1000
+            while True:
+                page = mg.query(q=q_string, species=species,
+                                fields="symbol,ensembl.gene",
+                                size=size, from_=from_)
+                hits = page.get("hits", [])
+                if not hits:
+                    break
+                add_hits(hits)
+                from_ += size
+                if from_ > 2_000_000:  # hard cap
+                    break
+        except Exception:
+            pass
+
+    # 2) build mapping
+    pull_all("_exists_:ensembl.gene")
+    if not mapping:
+        pull_all("ensembl.gene:*")
+
+    if not mapping:
+        raise RuntimeError(f"[MyGene] Failed to build ALL-genes mapping for species='{species}'.")
+
+    # 3) save cache (two columns, no header)
+    os.makedirs(os.path.dirname(gene_symbl_file), exist_ok=True)
+    with gzip.open(gene_symbl_file, "wt", encoding="utf-8") as gz:
+        for gid, sym in mapping.items():
+            gz.write(f"{gid}\t{sym}\n")
+    print(f"[MyGene] Saved mapping to: {gene_symbl_file}  (n={len(mapping)})")
+
+    return mapping
 
 
 # go_enrichment_analysis
@@ -391,21 +498,23 @@ def get_GO_annoinfo(species_name=None,
     if species_taxonomy_id is None and species_name not in ["human", "mouse", "rat", "fruitfly", "nematode", "zebrafish", "thale-cress", "frog", "pig"]:
         raise ValueError(f"Please provide the NCBI taxonomy ID of {species_name}.")
 
-    # Make sure the GO names file exists \
+    # Make sure the GO names file exists
     go_names_file = f"{DATA_DIR}/GO.names.txt.gz"
     out_annotation_file = f"{DATA_DIR}/{species_name}.GO.annotation.txt.gz"
     out_gene_symbl_file = f"{DATA_DIR}/{species_name}.gene.symbl.txt.gz"
 
-    if os.path.exists(go_names_file):
-        pass
-    else:
+    if not os.path.exists(go_names_file):
         raise ValueError("GO names file not found.")
     
-    # If the GO Anno file and gene symbol file already exist, rebuild them
-    if os.path.exists(out_annotation_file) and os.path.exists(out_gene_symbl_file):
-        print(f"\nNOTE! The GO annotation files for |{species_name}| will be rebuilt")
+    # If the GO Anno file already exist, rebuild them
+    if os.path.exists(out_annotation_file):
+        print(f"\nNOTE! The GO annotation file for |{species_name}| will be rebuilt")
         os.remove(out_annotation_file)
-        os.remove(out_gene_symbl_file)
+
+    # Make sure the gene symbol file exists, if not, construct it
+    _ = ensure_gene_symbol_table(species=species_name,
+                                species_taxonomy_id=species_taxonomy_id,
+                                gene_symbl_file=out_gene_symbl_file)
 
     # Set up MyGeneInfo and query for genes with GO annotations
     mg = mygene.MyGeneInfo()
@@ -433,96 +542,62 @@ def get_GO_annoinfo(species_name=None,
     # Collect (gene, GO term) pairs for Ensembl and Symbol separately
     ensembl_annotation_pairs = set()
     symbol_annotation_pairs = set()
-    gene2symbol = {}  # Mapping from Ensembl ID to gene symbol
 
     for hit in hits:
-        # Try to get the Ensembl gene ID
+        # Get the Ensembl gene ID
         ensembl_info = hit.get("ensembl")
-        gene_id = None
+        ensembl_ids = []
         if isinstance(ensembl_info, list):
-            gene_id = ensembl_info[0].get("gene")
+            for e in ensembl_info:
+                if isinstance(e, dict):
+                    gid = e.get("gene")
+                    if isinstance(gid, str):
+                        ensembl_ids.append(gid)
         elif isinstance(ensembl_info, dict):
-            gene_id = ensembl_info.get("gene")
+            gid = ensembl_info.get("gene")
+            if isinstance(gid, str):
+                ensembl_ids.append(gid)
         # Get the gene symbol
         symbol = hit.get("symbol")
-        # If both Ensembl and symbol exist, record both annotation types
-        if gene_id and symbol:
-            ensembl_annotation_pairs.add((gene_id, None))  # GO term will be filled later
-            symbol_annotation_pairs.add((symbol, None))
-            gene2symbol[gene_id] = symbol
-        elif gene_id:
-            ensembl_annotation_pairs.add((gene_id, None))
-            gene2symbol[gene_id] = gene_id  # Use gene_id if symbol is missing
-        elif symbol:
-            symbol_annotation_pairs.add((symbol, None))
-            gene2symbol[symbol] = symbol
-        
+
         # Process GO annotations
         go_data = hit.get("go")
-        if go_data and isinstance(go_data, dict):
-            for cat in ["BP", "MF", "CC"]:
-                terms = go_data.get(cat)
-                if terms:
-                    if isinstance(terms, list):
-                        for term in terms:
-                            go_term = term.get("id")
-                            if go_term:
-                                if gene_id:
-                                    ensembl_annotation_pairs.add((gene_id, go_term))
-                                if symbol:
-                                    symbol_annotation_pairs.add((symbol, go_term))
-                    elif isinstance(terms, dict):
-                        go_term = terms.get("id")
-                        if go_term:
-                            if gene_id:
-                                ensembl_annotation_pairs.add((gene_id, go_term))
-                            if symbol:
-                                symbol_annotation_pairs.add((symbol, go_term))
-    
-    # Build mapping (Ensembl -> Symbol) and inverse mapping (Symbol -> Ensembl)
-    symbol_to_ensembl = {}
-    for ensembl_id, sym in gene2symbol.items():
-        if sym not in symbol_to_ensembl:
-            symbol_to_ensembl[sym] = ensembl_id
+        if not (go_data and isinstance(go_data, dict)):
+            continue
+        for cat in ["BP", "MF", "CC"]:
+            terms = go_data.get(cat)
+            if not terms:
+                continue
+            if isinstance(terms, dict):
+                terms = [terms]
+            if not isinstance(terms, list):
+                continue
+            for term in terms:
+                go_term = term.get("id") if isinstance(term, dict) else None
+                if not go_term:
+                    continue
+                for gid in ensembl_ids:
+                    ensembl_annotation_pairs.add((gid, go_term))
+                if isinstance(symbol, str) and symbol:
+                    symbol_annotation_pairs.add((symbol, go_term))
 
-    # Fill in missing counterpart information for annotations
-    ensembl_annotation_pairs_filled = set()
-    for gene_id, go_term in ensembl_annotation_pairs:
-        if go_term is None:
-            continue
-        sym = gene2symbol.get(gene_id, gene_id)
-        ensembl_annotation_pairs_filled.add((gene_id, go_term, sym))
-    symbol_annotation_pairs_filled = set()
-    for sym, go_term in symbol_annotation_pairs:
-        if go_term is None:
-            continue
-        ensembl_id = symbol_to_ensembl.get(sym, sym)
-        symbol_annotation_pairs_filled.add((sym, go_term, ensembl_id))
-    
-    # Read valid GO terms from GO.names.txt.gz
+    # Read valid GO terms from GO.names.txt.gz    
     valid_go_terms = set()
     with gzip.open(go_names_file, "rt") as f:
         for line in f:
             parts = line.strip().split("\t")
             if parts:
                 valid_go_terms.add(parts[0])
-    
+
     # Filter out annotation pairs with GO terms not present in GO.names.txt.gz
-    ensembl_annotation_pairs_final = {pair for pair in ensembl_annotation_pairs_filled if pair[1] in valid_go_terms}
-    symbol_annotation_pairs_final = {pair for pair in symbol_annotation_pairs_filled if pair[1] in valid_go_terms}
-    
+    ensembl_annotation_pairs_final = {(g, go) for (g, go) in ensembl_annotation_pairs if go in valid_go_terms}
+    symbol_annotation_pairs_final  = {(s, go) for (s, go) in symbol_annotation_pairs  if go in valid_go_terms}
+
     # Write annotation file: first write Ensembl-based annotations, then Symbol-based annotations
     with gzip.open(out_annotation_file, "wt") as f:
-        # Write Ensembl-based annotations: format "EnsemblID<TAB>GO term<TAB>GeneSymbol"
-        for gene_id, go_term, _ in sorted(ensembl_annotation_pairs_final):
+        for gene_id, go_term in sorted(ensembl_annotation_pairs_final):
             f.write(f"{gene_id}\t{go_term}\n")
-        # Write Symbol-based annotations: format "GeneSymbol<TAB>GO term<TAB>EnsemblID"
-        for sym, go_term, _ in sorted(symbol_annotation_pairs_final):
+        for sym, go_term in sorted(symbol_annotation_pairs_final):
             f.write(f"{sym}\t{go_term}\n")
     
-    # Write gene symbol mapping file
-    with gzip.open(out_gene_symbl_file, "wt") as f:
-        for gene_id, sym in sorted(gene2symbol.items()):
-            f.write(f"{gene_id}\t{sym}\n")
-
     print(f"Files written:\n  {out_annotation_file}\n  {out_gene_symbl_file}")

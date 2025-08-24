@@ -12,6 +12,11 @@ import time
 import gc
 import os
 
+from .enrich_analysis import ensure_gene_symbol_table
+# Set the base directory and Ref directory
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "Ref_for_Enrichment")
+
 
 # run_mcl
 import torch
@@ -26,7 +31,7 @@ def run_mcl(SigEdges, expansion=2, inflation=1.7, add_self_loops='mean',
             max_iter=1000, tol=1e-6, pruning_threshold=1e-5, 
             run_mode=2,
             min_module_size = 10, topology_filtering = True, 
-            convert_to_symbols=False, species='human'):
+            convert_to_symbols=False, species=None, species_taxonomy_id=None):
     """
     Perform Markov Clustering (MCL) on a graph constructed from a DataFrame and output
     modules sorted by size with re-numbered module IDs using PyTorch for acceleration.
@@ -254,15 +259,8 @@ def run_mcl(SigEdges, expansion=2, inflation=1.7, add_self_loops='mean',
         # 7. Convert Ensembl IDs to gene symbols if requested.
         if convert_to_symbols:
             print("\nConverting Ensembl IDs to gene symbols...")
-            time.sleep(1)
-            # Initialize mygene API.
-            mg = mygene.MyGeneInfo()
-            # Query gene symbols for all unique genes.
-            gene_list = module_df['gene'].astype(str).unique()
-            gene_symbols = mg.querymany(gene_list, scopes='ensembl.gene', fields='symbol', species=species)
-            #gene_symbols = mg.querymany(module_df['gene'].unique(), scopes='ensembl.gene', fields='symbol', species=species)
-            # Create a mapping from Ensembl ID to gene symbol.
-            ensembl_to_symbol = {result['query']: result.get('symbol', result['query']) for result in gene_symbols}
+            gene_symbl_file = f"{DATA_DIR}/{species}.gene.symbl.txt.gz"
+            ensembl_to_symbol = ensure_gene_symbol_table(species, species_taxonomy_id, gene_symbl_file)
             # Add the 'Symbol' column to the DataFrame.
             module_df['symbol'] = module_df['gene'].map(ensembl_to_symbol)
         
@@ -279,7 +277,7 @@ def run_mcl(SigEdges, expansion=2, inflation=1.7, add_self_loops='mean',
 def run_louvain(SigEdges, 
                 resolution=1.0, randomize=None, random_state=None,
                 min_module_size=10, topology_filtering=True, 
-                convert_to_symbols=False, species='human'):
+                convert_to_symbols=False, species=None, species_taxonomy_id=None):
     """
     Perform community detection using the Louvain method on a graph constructed from a DataFrame
     and output modules sorted by size with re-numbered module IDs.
@@ -381,15 +379,8 @@ def run_louvain(SigEdges,
         # 8. Convert Ensembl IDs to gene symbols if requested.
         if convert_to_symbols:
             print("\nConverting Ensembl IDs to gene symbols...")
-            time.sleep(1)
-            # Initialize mygene API.
-            mg = mygene.MyGeneInfo()
-            # Query gene symbols for all unique genes.
-            gene_list = module_df['gene'].astype(str).unique()
-            gene_symbols = mg.querymany(gene_list, scopes='ensembl.gene', fields='symbol', species=species)
-            #gene_symbols = mg.querymany(module_df['gene'].unique(), scopes='ensembl.gene', fields='symbol', species=species)
-            # Create a mapping from Ensembl ID to gene symbol.
-            ensembl_to_symbol = {result['query']: result.get('symbol', result['query']) for result in gene_symbols}
+            gene_symbl_file = f"{DATA_DIR}/{species}.gene.symbl.txt.gz"
+            ensembl_to_symbol = ensure_gene_symbol_table(species, species_taxonomy_id, gene_symbl_file)
             # Add the 'Symbol' column to the DataFrame.
             module_df['symbol'] = module_df['gene'].map(ensembl_to_symbol)
 
@@ -404,7 +395,7 @@ def run_louvain(SigEdges,
 # run_mcl_original
 def run_mcl_original(SigEdges, inflation=1.7, scheme=7, threads=1,
                      min_module_size=10, topology_filtering=False,  
-                     convert_to_symbols=False, species='human'):
+                     convert_to_symbols=False, species=None, species_taxonomy_id=None):
     """
     Perform Markov Clustering (MCL) on a graph constructed from a DataFrame and output
     modules sorted by size with re-numbered module IDs using the original MCL software.
@@ -523,15 +514,8 @@ def run_mcl_original(SigEdges, inflation=1.7, scheme=7, threads=1,
         # 9. Convert Ensembl IDs to gene symbols if requested.
         if convert_to_symbols:
             print("\nConverting Ensembl IDs to gene symbols...")
-            time.sleep(1)
-            # Initialize mygene API.
-            mg = mygene.MyGeneInfo()
-            # Query gene symbols for all unique genes.
-            gene_list = module_df['gene'].astype(str).unique()
-            gene_symbols = mg.querymany(gene_list, scopes='ensembl.gene', fields='symbol', species=species)
-            #gene_symbols = mg.querymany(module_df['gene'].unique(), scopes='ensembl.gene', fields='symbol', species=species)
-            # Create a mapping from Ensembl ID to gene symbol.
-            ensembl_to_symbol = {result['query']: result.get('symbol', result['query']) for result in gene_symbols}
+            gene_symbl_file = f"{DATA_DIR}/{species}.gene.symbl.txt.gz"
+            ensembl_to_symbol = ensure_gene_symbol_table(species, species_taxonomy_id, gene_symbl_file)
             # Add the 'Symbol' column to the DataFrame.
             module_df['symbol'] = module_df['gene'].map(ensembl_to_symbol)
 

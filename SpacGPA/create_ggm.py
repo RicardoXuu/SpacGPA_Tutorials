@@ -501,7 +501,7 @@ class create_ggm:
                     resolution=1.0, randomize=None, random_state=None,
                     scheme=7, threads=1,
                     min_module_size=10, topology_filtering=True,
-                    convert_to_symbols=False, species='human'):
+                    convert_to_symbols=False, species=None, species_taxonomy_id=None):
         """
         Find modules using the specified method.
 
@@ -546,7 +546,7 @@ class create_ggm:
                                 inflation=inflation, expansion=expansion, add_self_loops=add_self_loops,
                                 max_iter=max_iter, tol=tol, pruning_threshold=pruning_threshold,
                                 min_module_size=min_module_size, topology_filtering=topology_filtering,
-                                convert_to_symbols=convert_to_symbols, species=species)
+                                convert_to_symbols=convert_to_symbols, species=species, species_taxonomy_id=species_taxonomy_id)
             self.modules = module_df.copy()
         elif methods == 'louvain':
             print("\nFind modules using Louvain...")
@@ -556,7 +556,7 @@ class create_ggm:
             module_df = run_louvain(self.SigEdges, 
                                     resolution=resolution, random_state=random_state, randomize=randomize,
                                     min_module_size=min_module_size, topology_filtering=topology_filtering,
-                                    convert_to_symbols=convert_to_symbols, species=species)
+                                    convert_to_symbols=convert_to_symbols, species=species, species_taxonomy_id=species_taxonomy_id)
             self.modules = module_df.copy()                          
         elif methods == 'mcl':
             print("\nFind modules using MCL ...")
@@ -565,7 +565,7 @@ class create_ggm:
             module_df = run_mcl_original(self.SigEdges,
                                         inflation=inflation, scheme=scheme, threads=threads,
                                         min_module_size=min_module_size, topology_filtering=topology_filtering,
-                                        convert_to_symbols=convert_to_symbols, species=species) 
+                                        convert_to_symbols=convert_to_symbols, species=species, species_taxonomy_id=species_taxonomy_id)
             self.modules = module_df.copy()   
         else:
             raise ValueError("Invalid method. Use 'mcl-hub', 'louvain', or 'mcl'.")
