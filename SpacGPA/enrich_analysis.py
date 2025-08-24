@@ -42,23 +42,47 @@ def go_enrichment_analysis(self,
     
     # Define a function for adjusting p-values
     def p_adjust(pvalues, method="BH"):
-        """Adjust p-values using Benjamini-Hochberg method.
-           method: Adjust p-values using different methods, including Benjamini-Hochberg, Bonferroni, Holm, and FDR.
         """
-        pvalues = np.array(pvalues)
-        n = len(pvalues)
+        Adjust p-values with Benjamini-Hochberg (BH) or Bonferroni.
+        - Returns adjusted p-values aligned to the original order.
+        - Preserves NaNs.
+        """
+        p = np.asarray(pvalues, dtype=float)
+        out = np.full_like(p, np.nan, dtype=float)
+
+        # operate only on finite values
+        mask = np.isfinite(p)
+        if not np.any(mask):
+            return out
+
+        pv = p[mask]
+        m = pv.size
+
+        method = method.upper()
         if method == "BH":
-            # Benjamini-Hochberg procedure for controlling False Discovery Rate (FDR)
-            ranked_pvalues = np.argsort(np.argsort(pvalues))
-            adjusted_pvalues = pvalues * n / (ranked_pvalues + 1)
-            adjusted_pvalues = np.minimum(adjusted_pvalues, 1)
+            # 1) sort ascending
+            order = np.argsort(pv)
+            pv_sorted = pv[order]
+
+            # 2) raw BH factor
+            ranks = np.arange(1, m + 1, dtype=float)
+            adj = pv_sorted * m / ranks
+
+            # 3) step-up (enforce monotonicity from right to left)
+            adj = np.minimum.accumulate(adj[::-1])[::-1]
+            adj = np.clip(adj, 0.0, 1.0)
+
+            # 4) place back to original positions of the finite subset
+            adj_back = np.empty_like(adj)
+            adj_back[order] = adj
+            out[mask] = adj_back
+
         elif method == "Bonferroni":
-            # Bonferroni correction: simple method, divide p-value by the number of tests
-            adjusted_pvalues = pvalues * n
-            adjusted_pvalues = np.minimum(adjusted_pvalues, 1)  # Ensure p-value doesn't exceed 1
+            out[mask] = np.clip(pv * m, 0.0, 1.0)
         else:
-            raise ValueError("Unsupported method,Please choose from 'BH' or 'Bonferroni'.")
-        return adjusted_pvalues
+            raise ValueError("Unsupported method. Choose 'BH' or 'Bonferroni'.")
+
+        return out
     
     print(f"\nReading GO term information for |{species}|...")
     # Extract module information from ggm.modules
@@ -123,6 +147,7 @@ def go_enrichment_analysis(self,
                 new_rows = []
                 for idx, go_id in enumerate(valid_go_ids):
                     genes_with_go = "/".join(sorted(module_go[module_go[1] == go_id][0].tolist()))
+                    symbols_with_go = "/".join([gene_symbl.get(g, g) for g in genes_with_go.split("/")])
                     new_row = {
                         "module_id": i,
                         "module_size": module_size_val,
@@ -134,6 +159,7 @@ def go_enrichment_analysis(self,
                         "genome_go_count": valid_in_g[idx],
                         "total_gene_number": total_gene_num,
                         "genes_with_go_in_module": genes_with_go,
+                        "symbols_with_go_in_module": symbols_with_go,
                         "pValue": valid_p_values[idx],
                         "pValueAdjusted": valid_p_values_adjusted[idx]
                     }
@@ -151,6 +177,8 @@ def go_enrichment_analysis(self,
     if all_table:
         all_table = pd.concat(all_table, ignore_index=True)
         all_table.reset_index(drop=True, inplace=True)
+        if all_table['genes_with_go_in_module'].equals(all_table['symbols_with_go_in_module']):
+            all_table = all_table.drop(columns=['symbols_with_go_in_module'])
         self.go_enrichment = all_table
         print(f"\nGO enrichment analysis completed. Found {len(all_table)} significant enriched GO terms total.")
     else:
@@ -184,19 +212,47 @@ def mp_enrichment_analysis(self,
     
     # Define a function for adjusting p-values
     def p_adjust(pvalues, method="BH"):
-        """Adjust p-values using Benjamini-Hochberg or Bonferroni method."""
-        pvalues = np.array(pvalues)
-        n = len(pvalues)
+        """
+        Adjust p-values with Benjamini-Hochberg (BH) or Bonferroni.
+        - Returns adjusted p-values aligned to the original order.
+        - Preserves NaNs.
+        """
+        p = np.asarray(pvalues, dtype=float)
+        out = np.full_like(p, np.nan, dtype=float)
+
+        # operate only on finite values
+        mask = np.isfinite(p)
+        if not np.any(mask):
+            return out
+
+        pv = p[mask]
+        m = pv.size
+
+        method = method.upper()
         if method == "BH":
-            ranked_pvalues = np.argsort(np.argsort(pvalues))
-            adjusted_pvalues = pvalues * n / (ranked_pvalues + 1)
-            adjusted_pvalues = np.minimum(adjusted_pvalues, 1)
+            # 1) sort ascending
+            order = np.argsort(pv)
+            pv_sorted = pv[order]
+
+            # 2) raw BH factor
+            ranks = np.arange(1, m + 1, dtype=float)
+            adj = pv_sorted * m / ranks
+
+            # 3) step-up (enforce monotonicity from right to left)
+            adj = np.minimum.accumulate(adj[::-1])[::-1]
+            adj = np.clip(adj, 0.0, 1.0)
+
+            # 4) place back to original positions of the finite subset
+            adj_back = np.empty_like(adj)
+            adj_back[order] = adj
+            out[mask] = adj_back
+
         elif method == "Bonferroni":
-            adjusted_pvalues = pvalues * n
-            adjusted_pvalues = np.minimum(adjusted_pvalues, 1)  # Ensure p-value doesn't exceed 1
+            out[mask] = np.clip(pv * m, 0.0, 1.0)
         else:
-            raise ValueError("Unsupported method, Please choose from 'BH' or 'Bonferroni'.")
-        return adjusted_pvalues
+            raise ValueError("Unsupported method. Choose 'BH' or 'Bonferroni'.")
+
+        return out
     
     print(f"\nReading MP term information for |{species}|...") 
     # Extract cluster information from ggm.modules
@@ -262,6 +318,7 @@ def mp_enrichment_analysis(self,
                 new_rows = []
                 for idx, mp_id in enumerate(valid_mp_ids):
                     genes_with_mp = "/".join(sorted(module_mp[module_mp[1] == mp_id][0].tolist()))
+                    symbols_with_mp = "/".join([gene_symbl.get(g, g) for g in genes_with_mp.split("/")])
                     new_row = {
                         "module_id": i,
                         "module_size": module_size_val,
@@ -273,6 +330,7 @@ def mp_enrichment_analysis(self,
                         "genome_mp_count": valid_in_g[idx],
                         "total_gene_number": total_gene_num,
                         "genes_with_mp_in_module": genes_with_mp,
+                        "symbols_with_mp_in_module": symbols_with_mp,
                         "pValue": valid_p_values[idx],
                         "pValueAdjusted": valid_p_values_adjusted[idx]
                     }
@@ -290,6 +348,8 @@ def mp_enrichment_analysis(self,
     if all_table:
         all_table = pd.concat(all_table, ignore_index=True)
         all_table.reset_index(drop=True, inplace=True)
+        if all_table['genes_with_mp_in_module'].equals(all_table['symbols_with_mp_in_module']):
+            all_table = all_table.drop(columns=['symbols_with_mp_in_module'])
         self.mp_enrichment = all_table
         print(f"\nMP enrichment analysis completed. Found {len(all_table)} significant enriched MP terms total.")
     else:
