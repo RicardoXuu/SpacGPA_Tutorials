@@ -261,8 +261,10 @@ def run_mcl(SigEdges, expansion=2, inflation=1.7, add_self_loops='mean',
             print("\nConverting Ensembl IDs to gene symbols...")
             gene_symbl_file = f"{DATA_DIR}/{species}.gene.symbl.txt.gz"
             ensembl_to_symbol = ensure_gene_symbol_table(species, species_taxonomy_id, gene_symbl_file)
+            ensembl_to_symbol = {str(k): str(v) for k, v in ensembl_to_symbol.items()}
             # Add the 'Symbol' column to the DataFrame.
             module_df['symbol'] = module_df['gene'].map(ensembl_to_symbol)
+            module_df['symbol'] = module_df['symbol'].fillna(module_df['gene']).astype(str)
         
         module_df['module_id'] = module_df['module_id'].apply(lambda x: "M" + str(int(x[1:])))
         return module_df
@@ -381,8 +383,10 @@ def run_louvain(SigEdges,
             print("\nConverting Ensembl IDs to gene symbols...")
             gene_symbl_file = f"{DATA_DIR}/{species}.gene.symbl.txt.gz"
             ensembl_to_symbol = ensure_gene_symbol_table(species, species_taxonomy_id, gene_symbl_file)
+            ensembl_to_symbol = {str(k): str(v) for k, v in ensembl_to_symbol.items()}
             # Add the 'Symbol' column to the DataFrame.
             module_df['symbol'] = module_df['gene'].map(ensembl_to_symbol)
+            module_df['symbol'] = module_df['symbol'].fillna(module_df['gene']).astype(str)
 
         module_df['module_id'] = module_df['module_id'].apply(lambda x: "M" + str(int(x[1:])))
         return module_df
@@ -516,8 +520,10 @@ def run_mcl_original(SigEdges, inflation=1.7, scheme=7, threads=1,
             print("\nConverting Ensembl IDs to gene symbols...")
             gene_symbl_file = f"{DATA_DIR}/{species}.gene.symbl.txt.gz"
             ensembl_to_symbol = ensure_gene_symbol_table(species, species_taxonomy_id, gene_symbl_file)
+            ensembl_to_symbol = {str(k): str(v) for k, v in ensembl_to_symbol.items()}
             # Add the 'Symbol' column to the DataFrame.
             module_df['symbol'] = module_df['gene'].map(ensembl_to_symbol)
+            module_df['symbol'] = module_df['symbol'].fillna(module_df['gene']).astype(str)
 
         module_df['module_id'] = module_df['module_id'].apply(lambda x: "M" + str(int(x[1:])))
         return module_df

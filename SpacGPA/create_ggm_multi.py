@@ -620,8 +620,6 @@ class create_ggm_multi:
             raise ValueError("Invalid method. Use 'mcl-hub', 'louvain', or 'mcl'.")
         
         if convert_to_symbols:
-            modules_symbol = module_df.copy()
-            self.modules_symbol = modules_symbol[['module_id','symbol','degree','rank']].rename(columns={'symbol':'gene'})
             grouped = module_df.groupby('module_id')
             self.modules_summary = grouped.agg(
                 size =('gene','size'),

@@ -174,8 +174,11 @@ if convert_to_symbols:
     print("\nConverting Ensembl IDs to gene symbols...")
     gene_symbl_file = f"{DATA_DIR}/{species}.gene.symbl.txt.gz"
     ensembl_to_symbol = ensure_gene_symbol_table(species = species, species_taxonomy_id = species_taxonomy_id, gene_symbl_file = gene_symbl_file)
+    ensembl_to_symbol = {str(k): str(v) for k, v in ensembl_to_symbol.items()}
     # Add the 'Symbol' column to the DataFrame.
     module_df['symbol'] = module_df['gene'].map(ensembl_to_symbol)
+    module_df['symbol'] = module_df['symbol'].fillna(module_df['gene']).astype(str)
+    
 
 
 
