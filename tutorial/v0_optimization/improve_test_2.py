@@ -51,11 +51,13 @@ ggm = sg.create_ggm(adata,
                     use_chunking=True,
                     chunk_size=10000,
                     stop_threshold=0,
-                    FDR_control=True,
+                    FDR_control=False,
                     FDR_threshold=0.05,
                     auto_adjust=True,
                     )  
 print(ggm.SigEdges)
+
+
 
 # %%
 # 调整Pcor阈值
@@ -65,8 +67,6 @@ if cut_pcor < 0.02:
 print("Adjust cutoff pcor:", cut_pcor)
 ggm.adjust_cutoff(pcor_threshold=cut_pcor)
 
-
-# %%
 # 使用改进的mcl聚类识别共表达模块
 start_time = time.time()
 ggm.find_modules(methods='mcl-hub',
@@ -75,6 +75,24 @@ ggm.find_modules(methods='mcl-hub',
                  convert_to_symbols=True, species='mouse')
 print(f"Time: {time.time() - start_time:.5f} s")
 print(ggm.modules_summary)
+
+
+
+# %%
+cut_pcor = 0.001
+print("Adjust cutoff pcor:", cut_pcor)
+ggm.adjust_cutoff(pcor_threshold=cut_pcor)
+
+# 使用改进的mcl聚类识别共表达模块
+start_time = time.time()
+ggm.find_modules(methods='mcl-hub',
+                 expansion=2, inflation=2, max_iter=1000, tol=1e-6, pruning_threshold=1e-5,
+                 min_module_size=10, topology_filtering=True, 
+                 convert_to_symbols=True, species='mouse')
+print(f"Time: {time.time() - start_time:.5f} s")
+print(ggm.modules_summary)
+
+
 
 # %%
 # GO富集分析
