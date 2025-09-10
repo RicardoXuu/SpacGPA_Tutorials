@@ -51,7 +51,7 @@ ggm = sg.create_ggm(adata,
                     use_chunking=True,
                     chunk_size=10000,
                     stop_threshold=0,
-                    FDR_control=False,
+                    FDR_control=True,
                     FDR_threshold=0.05,
                     auto_adjust=True,
                     )  
@@ -79,7 +79,7 @@ print(ggm.modules_summary)
 
 
 # %%
-cut_pcor = 0.001
+cut_pcor = 0.01
 print("Adjust cutoff pcor:", cut_pcor)
 ggm.adjust_cutoff(pcor_threshold=cut_pcor)
 
@@ -90,7 +90,6 @@ ggm.find_modules(methods='mcl-hub',
                  min_module_size=10, topology_filtering=True, 
                  convert_to_symbols=True, species='mouse')
 print(f"Time: {time.time() - start_time:.5f} s")
-print(ggm.modules_summary)
 
 
 
