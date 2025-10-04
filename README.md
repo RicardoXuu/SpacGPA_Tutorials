@@ -47,21 +47,25 @@ conda install -c bioconda mcl.
 
 Option B — From source with pip
 
-## system deps: ensure MCL is installed (e.g., conda install -c bioconda mcl)
+### System Dependencies: 
 
-## torch: install a suitable PyTorch build for your CUDA/CPU **before** installing spacgpa
+make sure MCL is installed (e.g., conda install -c bioconda mcl) if you want to use the original classical Markov Clustering algorithm.
+
+### PyTorch: 
+
+install a suitable PyTorch build for your CUDA/CPU **before** installing spacgpa
 
 (see <https://pytorch.org/get-started/locally/>)
 
-### install spacgpa
+### Install SpacGPA
 
-pip install -U pip setuptools wheel
-pip install -e .          # from the repository root
+**`pip install -U pip setuptools wheel`**  
+**`pip install -e .  # from the repository root`**
 
 Planned binary releases
 When published, installation will also be available via:
- • PyPI: pip install spacgpa
- • conda-forge: conda install -c conda-forge spacgpa
+**`• PyPI: pip install spacgpa**`
+**`• conda-forge: conda install -c conda-forge spacgpa**`
 
 ## Usage
 
