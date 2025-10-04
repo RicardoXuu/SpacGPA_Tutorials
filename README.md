@@ -1,9 +1,9 @@
 
 # SpacGPA: Spatial and single-cell Gene Program Analysis
 
-<img src="assets/SpacGPA_Logo.png" alt="SpacGPA logo" align="right" width="80" />
+<img src="assets/SpacGPA_Logo.png" alt="SpacGPA logo" align="right" width="100" />
 
-SpacGPA is a GPU-accelerated toolkit that annotates spatial transcriptomes through de novo interpretable gene programs. It builds co-expression networks via a graphical Gaussian model, identifies programs with a modified Markov Clustering (MCL) procedure, performs ontology-based enrichment (GO/MP), and applies programs to spatial analyses such as SVG detection, spatial domain delineation, and label integration.
+**SpacGPA** is a GPU-accelerated toolkit that annotates spatial transcriptomes through de novo interpretable gene programs. It builds co-expression networks via a **graphical Gaussian model**, identifies programs with a **modified Markov Clustering (MCL)** procedure, performs ontology-based enrichment (GO/MP), and applies programs to spatial analyses such as SVG detection, spatial domain delineation, and label integration.
 
 <p align="center">
   <img src="assets/SpacGPA_Workflow.png" alt="SpacGPA workflow" width="500" />
@@ -24,20 +24,22 @@ SpacGPA is described in the preprint “[SpacGPA: annotating spatial transcripto
 ### Option A — Create a conda environment (recommended)
 
 1) Create the environment  
-**`conda env create -f environment.yml`**  
-**`conda activate SpacGPA`**  
-(Attention：If you prefer a different CUDA/toolkit, edit the PyTorch lines in environment.yml
-to match your GPU / driver, or switch to CPU-only builds from pytorch. See [PyTorch]<https://pytorch.org/get-started/locally/>
-for a suitable PyTorch Version build for your CUDA/CPU)  
+**conda env create -f environment.yml**  
+**conda activate SpacGPA**  
 2) Install SpacGPA (from the repository root)  
-**`pip install -e .`**
+**cd The/root/directory/of/SpacGPA/you/downloaded**  
+**pip install -e .**
+
+**Attention：** If you prefer a different CUDA/toolkit, edit the PyTorch lines in environment.yml
+to match your GPU / driver, or switch to CPU-only builds from pytorch. See [PyTorch](https://pytorch.org/get-started/locally/)
+for a suitable Version build for your CUDA/CPU
 
 ### Option B — Planned binary releases
 
-When published, installation will also be available via:
-**`PyPI: pip install spacgpa`**
-or  
-**`conda-forge: conda install -c conda-forge spacgpa`**
+When published, installation will also be available via PyPI:  
+**pip install spacgpa**  
+or via conda-forge:  
+**conda install -c conda-forge spacgpa**
 
 ## Usage
 
