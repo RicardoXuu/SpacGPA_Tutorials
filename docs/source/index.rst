@@ -1,11 +1,15 @@
-SpacGPA — Gene-Expression-Program Analysis Toolkit for Spatial Transcriptomics
+SpacGPA: Spatial and single-cell Gene Program Analysis
 =============================================================================
 
 .. rst-class:: lead
 
-**SpacGPA** is a Python package for single-cell and spatial transcriptomics that
-offers **gene-expression-program (GEP) inference, co-expression network
-construction, functional enrichment analysis,** and **cell-type annotation**.
+**SpacGPA** is a GPU-accelerated toolkit that annotates spatial transcriptomes through de 
+novo interpretable gene programs. It builds co-expression networks via a **Gaussian graphical 
+model (GGM)**, identifies programs with a **modified Markov Clustering (MCL)** algorithm, 
+performs ontology-based enrichment (Gene Ontology (GO) / Mammalian Phenotype (MP)), and 
+applies programs to spatial analyses such as detection of SVGs, spatial domain annotation, 
+and label integration.
+
 This website hosts the installation guide, quick-start tutorial, in-depth
 workflows, and full API reference.
 
@@ -53,14 +57,15 @@ Table of Contents
 Citation & Acknowledgments
 --------------------------------------------------------
 
-If SpacGPA contributes to your research, please cite our forthcoming
-manuscript, *“to be continue”*
+If you use SpacGPA in your work, please cite:
+Xu Y, Chen L, Ma S. SpacGPA: annotating spatial transcriptomes through de novo interpretable gene programs. bioRxiv (2025). doi:10.1101/2025.10.01.679918. 
 
 --------------------------------------------------------
 Support & Contact
 --------------------------------------------------------
 
-* **GitHub**  : https://github.com/RicardoXuu/SpacGPA_dev_1  
+* **GitHub**  : https://github.com/MaShisongLab/SpacGPA
 * **Issues**  : Please open a ticket on GitHub Issues for bugs or feature requests  
-* **E-mail**  : xuyp8121@mail.ustc.edu.cn
+* **E-mail**  : sma@ustc.edu.cn
+
 
