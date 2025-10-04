@@ -59,33 +59,37 @@ When published, installation will also be available via:
 
 ## Functionality at a glance
 
- • Network construction: partial correlations (graphical Gaussian model) with GPU-accelerated blockwise sampling.
+### Network construction
 
- • Program discovery: modified MCL clustering; support for hub degree statistics.
+partial correlations (graphical Gaussian model) with GPU-accelerated blockwise sampling.
 
- • Program interpretation: GO / MP enrichment; hub-gene–weighted program scores.
+### Program discovery
 
- • Spatial analyses:
+modified MCL clustering; support for hub degree statistics.
 
- • SVG detection using degree and Moran’s I;
+### Program interpretation
 
- • Gaussian-mixture–based program-positive calling for spatial domains;
+GO / MP enrichment; hub-gene–weighted program scores.
 
- • Neighbor-aware smoothing;
+### Spatial analyses
 
- • Label integration combining expression-rank and spatial neighbors.
+SVG detection using degree and Moran’s I;
 
- • Visualization utilities:
+Gaussian-mixture–based program-positive calling for spatial domains;
 
- • Inter-program relationship heatmaps;
+Label integration combining expression-rank and spatial neighbors.
 
- • Program × cluster bubble plots;
+### Visualization utilities
 
- • Degree vs. Moran’s I scatter for program genes;
+Inter-program relationship heatmaps;
 
- • Program network diagrams;
+Program × cluster bubble plots;
 
- • Bar charts for GO/MP enrichment.
+Degree vs. Moran’s I scatter for program genes;
+
+Program network diagrams;
+
+Bar charts for GO/MP enrichment.
 
 (Concepts and analyses summarized above are introduced in the preprint.  ￼)
 
