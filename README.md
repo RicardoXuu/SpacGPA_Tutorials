@@ -25,19 +25,15 @@ Scales to million-spot data and integrates across sections/platforms; programs t
 
 ## Installation
 
-Python: 3.8
-
-OS: Linux/macOS/Windows (CUDA optional for GPU)
-
-External binary: MCL (installed via conda as shown below)
-
-PyTorch: install a build that matches your CUDA/CPU setup (see pytorch.org).
+Python: 3.8 or higher  
+OS: Linux/macOS/Windows (CUDA optional for GPU)  
+PyTorch: install a build that matches your CUDA/CPU setup (see pytorch.org).  
 
 Option A — Create a conda environment (recommended)
 
-1) Create the environment
-conda env create -f environment.yml
-conda activate spacgpa
+1) Create the environment  
+conda env create -f environment.yml  
+conda activate spacgpa  
 
 2) (If you prefer a different CUDA/toolkit) edit the PyTorch lines in environment.yml
 to match your GPU / driver, or switch to CPU-only builds from pytorch.
@@ -69,9 +65,8 @@ When published, installation will also be available via:
 
 ## Usage
 
- • API and tutorials: See Documentation and Tutorials in [SpacGPA](https://spacgpa.readthedocs.io).
-
- • The documentation covers a typical workflow: network construction → program discovery (MCL) → enrichment (GO/MP) → SVG identification and spatial domain analysis → visualization utilities.
+ • API and tutorials: See Documentation and Tutorials in [SpacGPA](https://spacgpa.readthedocs.io).<br>
+ • Each tutorial covers a typical workflow: network construction → program identification (MCL) → functional enrichment analysis (GO/MP) → spatial transcriptome annotation using programs → visualization.
 
 ## Functionality at a glance
 
