@@ -277,6 +277,7 @@ def calculate_pcors_pytorch(x, round_num, selected_num, gene_name, project_name,
         torch.manual_seed(seed)
 
         # Step 3: Iteratively compute partial correlations
+        t0 = time.time()
         for i in range(round_num):
             loop_start_t = time.time()
             j = torch.randperm(ncol, device="cpu")[:selected_num]  # Random sampling on CPU
@@ -322,11 +323,11 @@ def calculate_pcors_pytorch(x, round_num, selected_num, gene_name, project_name,
             time_trend[i % 100] = loop_time
             average_loop_time = time_trend[:min(i + 1, 100)].mean().item()
             time_left = (round_num - i - 1) * average_loop_time / 60
+            elapsed_min = (time.time() - t0) / 60.0
             sys.stdout.write(f"\rIteration: {i + 1}/{round_num}, "
-                  f"Updated gene pairs: {updated_elements_count}, "
-                  f"Removed gene pairs: {valid_elements_count}, "
                   f"Avg loop time: {average_loop_time:.4f} s, "
-                  f"Estimated time left: {time_left:.2f} min. "
+                  f"Elapsed time: {elapsed_min:.2f} min, "
+                  f"Estimated time left: {time_left:.2f} min.                  "
                   )
             sys.stdout.flush()
 

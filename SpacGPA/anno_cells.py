@@ -1097,18 +1097,18 @@ def annotate_with_ggm(
 
 
 # integrate_annotations
-def integrate_annotations_noweight(adata,
-                                    ggm_key='ggm',
-                                    cross_ggm = False,
-                                    modules_used=None,
-                                    modules_excluded=None,
-                                    modules_preferred=None,
-                                    result_anno='annotation',
-                                    use_smooth=True,
-                                    embedding_key='spatial',
-                                    k_neighbors=24,
-                                    neighbor_similarity_ratio=0.90
-                                    ):            
+def integrate_annotations(adata,
+                        ggm_key='ggm',
+                        cross_ggm = False,
+                        modules_used=None,
+                        modules_excluded=None,
+                        modules_preferred=None,
+                        result_anno='annotation',
+                        use_smooth=True,
+                        embedding_key='spatial',
+                        k_neighbors=24,
+                        neighbor_similarity_ratio=0.90
+                        ):            
     """
     Integrate cell annotations from multiple modules using the following logic:
       1) Optionally use smoothed annotations (controlled by use_smooth);
