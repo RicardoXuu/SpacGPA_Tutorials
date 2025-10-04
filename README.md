@@ -41,7 +41,7 @@ Option B — From source with pip
 
 ## (see <https://pytorch.org/get-started/locally/>)
 
-## install spacgpa
+### install spacgpa
 
 pip install -U pip setuptools wheel
 pip install -e .          # from the repository root
@@ -51,15 +51,13 @@ When published, installation will also be available via:
  • PyPI: pip install spacgpa
  • conda-forge: conda install -c conda-forge spacgpa
 
-⸻
+## Usage
 
-Usage
  • API and tutorials: See Documentation and Tutorials in XXX.
  • The documentation covers a typical workflow: network construction → program discovery (MCL) → enrichment (GO/MP) → SVG identification and spatial domain analysis → visualization utilities.
 
-⸻
+## Functionality at a glance
 
-Functionality at a glance
  • Network construction: partial correlations (graphical Gaussian model) with GPU-accelerated blockwise sampling.
  • Program discovery: modified MCL clustering; support for hub degree statistics.
  • Program interpretation: GO / MP enrichment; hub-gene–weighted program scores.
@@ -77,12 +75,15 @@ Functionality at a glance
 
 (Concepts and analyses summarized above are introduced in the preprint.  ￼)
 
-How to cite
+## How to cite
+
 If you use SpacGPA in your work, please cite:
 Xu Y, Chen L, Ma S. SpacGPA: annotating spatial transcriptomes through de novo interpretable gene programs. bioRxiv (2025). doi:10.1101/2025.10.01.679918.  ￼  ￼
 
-License
+## License
+
 This project is released under the BSD-3-Clause license. See the LICENSE file for details.  ￼
 
-Contact
+## Contact
+
 For questions and feature requests, please open an issue on GitHub or contact the corresponding author (<sma@ustc.edu.cn>).
