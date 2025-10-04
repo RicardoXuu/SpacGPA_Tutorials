@@ -26,8 +26,11 @@ Scales to million-spot data and integrates across sections/platforms; programs t
 ## Installation
 
 Python: 3.8
+
 OS: Linux/macOS/Windows (CUDA optional for GPU)
+
 External binary: MCL (installed via conda as shown below)
+
 PyTorch: install a build that matches your CUDA/CPU setup (see pytorch.org).
 
 Option A — Create a conda environment (recommended)
@@ -82,13 +85,13 @@ GO / MP enrichment; hub-gene–weighted program scores.
 
 ### Spatial analyses：
 
-SVG detection using degree and Moran’s I;
+SVGs detection via Gene's degree and Moran’s I;
 
 Gaussian-mixture–based program-positive calling for spatial domains;
 
 Label integration combining expression-rank and spatial neighbors.
 
-### Visualization utilities：
+### Visualization utilities:
 
 Inter-program relationship heatmaps;
 
