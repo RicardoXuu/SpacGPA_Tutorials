@@ -24,10 +24,11 @@ SpacGPA is described in the preprint “[SpacGPA: annotating spatial transcripto
 ### Option A — Create a conda environment (recommended)
 
 1) Create the environment  
-(If you prefer a different CUDA/toolkit, edit the PyTorch lines in environment.yml
-to match your GPU / driver, or switch to CPU-only builds from pytorch.) 
 **`conda env create -f environment.yml`**  
 **`conda activate SpacGPA`**  
+(Attention：If you prefer a different CUDA/toolkit, edit the PyTorch lines in environment.yml
+to match your GPU / driver, or switch to CPU-only builds from pytorch. See [PyTorch]<https://pytorch.org/get-started/locally/>
+for a suitable PyTorch Version build for your CUDA/CPU)  
 2) Install SpacGPA (from the repository root)  
 **`pip install -e .`**
 
@@ -35,7 +36,7 @@ to match your GPU / driver, or switch to CPU-only builds from pytorch.)
 
 install a suitable PyTorch build for your CUDA/CPU **before** installing spacgpa
 
-(see <https://pytorch.org/get-started/locally/>)
+(see )
 
 ### Option B — Using
 
