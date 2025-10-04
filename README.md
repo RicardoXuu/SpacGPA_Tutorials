@@ -21,24 +21,16 @@ SpacGPA is described in the preprint “[SpacGPA: annotating spatial transcripto
 
 ## Installation
 
-Python: 3.8 or higher  
-OS: Linux/macOS/Windows (CUDA optional for GPU)  
-PyTorch: install a build that matches your CUDA/CPU setup (see pytorch.org).  
-
-Option A — Create a conda environment (recommended)
+### Option A — Create a conda environment (recommended)
 
 1) Create the environment  
-conda env create -f environment.yml  
-conda activate spacgpa  
+(If you prefer a different CUDA/toolkit, edit the PyTorch lines in environment.yml
+to match your GPU / driver, or switch to CPU-only builds from pytorch.)
+**`conda env create -f environment.yml`**
+**`conda activate SpacGPA`**
 
-2) (If you prefer a different CUDA/toolkit) edit the PyTorch lines in environment.yml
-to match your GPU / driver, or switch to CPU-only builds from pytorch.
-Note on MCL: the environment installs bioconda::mcl. If you use a custom environment, install it explicitly with
-conda install -c bioconda mcl.
-
-Option B — From source with pip
-
-Note on MCL: make sure MCL is installed (e.g., conda install -c bioconda mcl) if you want to use the original classical Markov Clustering algorithm.
+2) Install SpacGPA (from the repository root)
+**`pip install -e .`**
 
 ### PyTorch
 
@@ -46,15 +38,17 @@ install a suitable PyTorch build for your CUDA/CPU **before** installing spacgpa
 
 (see <https://pytorch.org/get-started/locally/>)
 
-### Install SpacGPA
+### Option B — Using
 
 **`pip install -U pip setuptools wheel`**  
 **`pip install -e .  # from the repository root`**
 
-Planned binary releases
+### Planned binary releases
+
 When published, installation will also be available via:
-**`• PyPI: pip install spacgpa**`
-**`• conda-forge: conda install -c conda-forge spacgpa**`
+**`PyPI: pip install spacgpa**`
+or  
+**`conda-forge: conda install -c conda-forge spacgpa**`
 
 ## Usage
 
