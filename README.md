@@ -6,13 +6,17 @@ SpacGPA is a GPU-accelerated toolkit that annotates spatial transcriptomes throu
 <img src="assets/SpacGPA_Workflow.png" alt="SpacGPA workflow" align="center bottom" width="600" />
 SpacGPA is described in the preprint “SpacGPA: annotating spatial transcriptomes through de novo interpretable gene programs” (Xu, Chen, Ma) and is released under the BSD-3-ClausW license.
 
+## Highlights
 
-Highlights
- • Gene-centric GGM networks with iterative random sampling and block-matrix GPU operations (PyTorch) for speed and memory efficiency on very large datasets.  ￼
- • Program discovery using a modified, GPU-accelerated MCL (MCL-Hub) with minimal parameter tuning.  ￼
- • Functional interpretation: enrichment over ontologies (GO, MP) and hub-gene–weighted program scoring.  ￼
- • Spatial analytics: SVG identification (e.g., Moran’s I), Gaussian-mixture–based program-positive spot calling, spatial neighbor smoothing, and label integration strategies.  ￼
- • Scales to million-spot data and integrates across sections/platforms; programs transfer to independent spatial and single-cell datasets.  ￼  ￼
+Gene-centric GGM networks with iterative random sampling and block-matrix GPU operations (PyTorch) for speed and memory efficiency on very large datasets.
+
+Program discovery using a modified, GPU-accelerated MCL (MCL-Hub) with minimal parameter tuning.
+
+Functional interpretation: enrichment over ontologies (GO, MP) and hub-gene–weighted program scoring.
+
+Spatial analytics: SVG identification (e.g., Moran’s I), Gaussian-mixture–based program-positive spot calling, spatial neighbor smoothing, and label integration strategies.
+
+Scales to million-spot data and integrates across sections/platforms; programs transfer to independent spatial and single-cell datasets.
 
 ## Installation
 
