@@ -6,7 +6,7 @@
 SpacGPA is a GPU-accelerated toolkit that annotates spatial transcriptomes through de novo interpretable gene programs. It builds co-expression networks via a graphical Gaussian model, identifies programs with a modified Markov Clustering (MCL) procedure, performs ontology-based enrichment (GO/MP), and applies programs to spatial analyses such as SVG detection, spatial domain delineation, and label integration.
 
 <p align="center">
-  <img src="assets/SpacGPA_Workflow.png" alt="SpacGPA workflow" width="600" />
+  <img src="assets/SpacGPA_Workflow.png" alt="SpacGPA workflow" width="500" />
 </p>
 
 SpacGPA is described in the preprint “[SpacGPA: annotating spatial transcriptomes through de novo interpretable gene programs](https://www.biorxiv.org/doi/10.1101/2025.10.01.679918)” (Xu, Chen, Ma) and is released under the BSD-3-ClausW license.
@@ -41,24 +41,24 @@ or
 
 ## Usage
 
- • API and tutorials: See Documentation and Tutorials in [SpacGPA](https://spacgpa.readthedocs.io).<br>
+ • API and tutorials: See Documentation and Tutorials in [SpacGPA](https://spacgpa.readthedocs.io).  
  • Each tutorial covers a typical workflow: network construction → program identification (MCL) → functional enrichment analysis (GO/MP) → spatial transcriptome annotation using programs → visualization.
 
 ## Functionality at a glance
 
-### Network construction：
+### Network construction
 
 partial correlations (graphical Gaussian model) with GPU-accelerated blockwise sampling.
 
-### Program discovery：
+### Program discovery
 
 modified MCL clustering; support for hub degree statistics.
 
-### Program interpretation：
+### Program interpretation
 
 GO / MP enrichment; hub-gene–weighted program scores.
 
-### Spatial analyses：
+### Spatial analyses
 
 SVGs detection via Gene's degree and Moran’s I;
 
