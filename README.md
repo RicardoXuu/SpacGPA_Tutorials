@@ -54,23 +54,37 @@ When published, installation will also be available via:
 ## Usage
 
  • API and tutorials: See Documentation and Tutorials in [SpacGPA](https://spacgpa.readthedocs.io).
+
  • The documentation covers a typical workflow: network construction → program discovery (MCL) → enrichment (GO/MP) → SVG identification and spatial domain analysis → visualization utilities.
 
 ## Functionality at a glance
 
  • Network construction: partial correlations (graphical Gaussian model) with GPU-accelerated blockwise sampling.
+
  • Program discovery: modified MCL clustering; support for hub degree statistics.
+
  • Program interpretation: GO / MP enrichment; hub-gene–weighted program scores.
+
  • Spatial analyses:
+
  • SVG detection using degree and Moran’s I;
+
  • Gaussian-mixture–based program-positive calling for spatial domains;
+
  • Neighbor-aware smoothing;
+
  • Label integration combining expression-rank and spatial neighbors.
+
  • Visualization utilities:
+
  • Inter-program relationship heatmaps;
+
  • Program × cluster bubble plots;
+
  • Degree vs. Moran’s I scatter for program genes;
+
  • Program network diagrams;
+
  • Bar charts for GO/MP enrichment.
 
 (Concepts and analyses summarized above are introduced in the preprint.  ￼)
