@@ -39,7 +39,7 @@ Option B — From source with pip
 
 ## torch: install a suitable PyTorch build for your CUDA/CPU **before** installing spacgpa
 
-## (see <https://pytorch.org/get-started/locally/>)
+(see <https://pytorch.org/get-started/locally/>)
 
 ### install spacgpa
 
@@ -53,7 +53,7 @@ When published, installation will also be available via:
 
 ## Usage
 
- • API and tutorials: See Documentation and Tutorials in XXX.
+ • API and tutorials: See Documentation and Tutorials in [SpacGPA](https://spacgpa.readthedocs.io).
  • The documentation covers a typical workflow: network construction → program discovery (MCL) → enrichment (GO/MP) → SVG identification and spatial domain analysis → visualization utilities.
 
 ## Functionality at a glance
