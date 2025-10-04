@@ -34,3 +34,10 @@ SpacGPA/Ref_for_Enrichment/*
 # Ignore OS-specific files
 .DS_Store
 Thumbs.db
+
+# Ignore self
+*.log
+*.out
+*.tmp
+*.bak
+*.swp
