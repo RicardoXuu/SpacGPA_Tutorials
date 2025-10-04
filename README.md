@@ -13,15 +13,11 @@ SpacGPA is described in the preprint “[SpacGPA: annotating spatial transcripto
 
 ## Highlights
 
-Gene-centric GGM networks with iterative random sampling and block-matrix GPU operations (PyTorch) for speed and memory efficiency on very large datasets.
-
-Program discovery using a modified, GPU-accelerated MCL (MCL-Hub) with minimal parameter tuning.
-
-Functional interpretation: enrichment over ontologies (GO, MP) and hub-gene–weighted program scoring.
-
-Spatial analytics: SVG identification (e.g., Moran’s I), Gaussian-mixture–based program-positive spot calling, spatial neighbor smoothing, and label integration strategies.
-
-Scales to million-spot data and integrates across sections/platforms; programs transfer to independent spatial and single-cell datasets.
+- **Network inference:** Fast gene–gene co-expression via graphical Gaussian models with GPU-friendly blockwise ops.
+- **Program discovery:** Interpretable gene programs from a modified **MCL** with minimal tuning.
+- **Functional interpretation:** **GO/MP** enrichment and hub genes-weighted program scoring.
+- **Spatial analysis:** SVG detection (Moran’s *I*), Gaussian-mixture domain calling, neighbor smoothing, and label integration.
+- **Scale & transfer:** Handles million-spot datasets; programs transfer across sections, platforms, and single-cell data.
 
 ## Installation
 
@@ -37,17 +33,14 @@ conda activate spacgpa
 
 2) (If you prefer a different CUDA/toolkit) edit the PyTorch lines in environment.yml
 to match your GPU / driver, or switch to CPU-only builds from pytorch.
-
 Note on MCL: the environment installs bioconda::mcl. If you use a custom environment, install it explicitly with
 conda install -c bioconda mcl.
 
 Option B — From source with pip
 
-### System Dependencies: 
+Note on MCL: make sure MCL is installed (e.g., conda install -c bioconda mcl) if you want to use the original classical Markov Clustering algorithm.
 
-make sure MCL is installed (e.g., conda install -c bioconda mcl) if you want to use the original classical Markov Clustering algorithm.
-
-### PyTorch: 
+### PyTorch
 
 install a suitable PyTorch build for your CUDA/CPU **before** installing spacgpa
 
