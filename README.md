@@ -32,23 +32,12 @@ for a suitable PyTorch Version build for your CUDA/CPU)
 2) Install SpacGPA (from the repository root)  
 **`pip install -e .`**
 
-### PyTorch
-
-install a suitable PyTorch build for your CUDA/CPU **before** installing spacgpa
-
-(see )
-
-### Option B — Using
-
-**`pip install -U pip setuptools wheel`**  
-**`pip install -e .  # from the repository root`**
-
-### Planned binary releases
+### Option B — Planned binary releases
 
 When published, installation will also be available via:
-**`PyPI: pip install spacgpa**`
+**`PyPI: pip install spacgpa`**
 or  
-**`conda-forge: conda install -c conda-forge spacgpa**`
+**`conda-forge: conda install -c conda-forge spacgpa`**
 
 ## Usage
 
