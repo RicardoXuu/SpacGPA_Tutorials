@@ -7,7 +7,7 @@ SpacGPA is a GPU-accelerated toolkit that annotates spatial transcriptomes throu
 
 <img src="assets/SpacGPA_Workflow.png" alt="SpacGPA workflow" align="center bottom" width="600" />
 
-SpacGPA is described in the preprint “[SpacGPA: annotating spatial transcriptomes through de novo interpretable gene programs](doi:10.1101/2025.10.01.679918)” (Xu, Chen, Ma) and is released under the BSD-3-ClausW license.
+SpacGPA is described in the preprint “[SpacGPA: annotating spatial transcriptomes through de novo interpretable gene programs](https://www.biorxiv.org/doi/10.1101/2025.10.01.679918)” (Xu, Chen, Ma) and is released under the BSD-3-ClausW license.
 
 ## Highlights
 
