@@ -14,25 +14,20 @@ import gc
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
-from PIL import Image
-
-# %% 
-# Reset working directory
-os.getcwd()
-workdir = '/dta/ypxu/SpacGPA/Dev_Version/SpacGPA_dev_1'
-os.chdir(workdir)
-os.getcwd()
-
 # %%
+# import SpacGPA
 import SpacGPA as sg
 
 # %%
+# Set working directory
+workdir = '..'
+os.chdir(workdir)
+
+# %%
 # Load Spatial Transcriptomics data
-adata = sc.read_h5ad("/dta/ypxu/ST_GGM/VS_Code/ST_GGM_dev_1/data/MOSTA/E16.5_E1S1.MOSTA.h5ad")
+adata = sc.read_h5ad("data/Stereo-seq/MOSTA/E16.5_E2S1.MOSTA.h5ad")
 adata.var_names_make_unique()
-print(adata.X.shape)
+print(adata)
 
 # %%
 # Data preprocessing
@@ -44,67 +39,75 @@ sc.pp.filter_genes(adata, min_cells=10)
 print(adata.X.shape)
 
 # %%
-# Callculate Coexpression Network using SpacGPA
-ggm = sg.create_ggm(adata,
-                    project_name = "E16.5_E2S1", 
-                    run_mode=2, 
-                    double_precision=False,
-                    use_chunking=True,
-                    chunk_size=10000,
-                    stop_threshold=0,
-                    FDR_control=True,
-                    FDR_threshold=0.01,
-                    auto_adjust=True,
-                    )  
+# Calculate Coexpression Network using SpacGPA
+ggm = sg.create_ggm(adata,project_name = "E16.5_E2S1")  
+
+# %%
+# show significant co-expression gene pairs
+print(ggm.SigEdges.head(5))
+
+# %%
+# identify gene programs via MCL-Hub algorithm
+ggm.find_modules(methods='mcl-hub')
+
+# %%
+# show identified programs
+print(ggm.modules_summary.head(5))
+
+# %%
+# visualize network of program M1 via sg.module_network_plot
+M1_edges = ggm.get_module_edges('M1')
+
+# %%
+M1_anno = ggm.get_module_anno('M1')
+
+# %%
+sg.module_network_plot(
+    nodes_edges = M1_edges,
+    nodes_anno = M1_anno,
+    show_nodes = 30,
+    weight_power = 1,
+    layout  = 'spring',
+    layout_k = 1,
+    layout_iterations= 50,
+    label_font_size= 20,
+    highlight_label_font_size= 20,
+    highlight_label_color= 'salmon',
+    plot = True,
+    save_plot_as = None,
+    save_network_as = None
+) 
+# %%
+
+# %%
+# Show Relationship between degree and Moran's I of genes within program M1 via sg.module_degree_vs_moran_plot
+
 
 
 # %%
-# 调整Pcor阈值
-ggm.adjust_cutoff(pcor_threshold=0.02)
-
-# %%
-# 使用改进的mcl聚类识别共表达模块
-start_time = time.time()
-ggm.find_modules(methods='mcl-hub',
-                 expansion=2, inflation=2, max_iter=1000, tol=1e-6, pruning_threshold=1e-5,
-                 min_module_size=10, topology_filtering=True, 
-                 convert_to_symbols=True, species='mouse')
-print(f"Time: {time.time() - start_time:.5f} s")
-print(ggm.modules_summary)
-
-# %%
-# GO富集分析
-start_time = time.time()
+# GO Enrichment Analysis
 ggm.go_enrichment_analysis(species='mouse',padjust_method="BH",pvalue_cutoff=0.05)
-print(f"Time: {time.time() - start_time:.5f} s")
-print(ggm.go_enrichment)
 
 # %%
-# MP富集分析
-start_time = time.time()
+# MP Enrichment Analysis
 ggm.mp_enrichment_analysis(species='mouse',padjust_method="BH",pvalue_cutoff=0.05)
-print(f"Time: {time.time() - start_time:.5f} s")
-print(ggm.mp_enrichment)
+
 
 # %%
-# 打印GGM信息
-ggm
+# visualize GO enrichment results for programs M1-M5 via sg.module_go_enrichment_plot
 
 # %%
-# 保存GGM
-start_time = time.time()
+# visualize MP enrichment results for programs M1-M5 via sg.module_mp_enrichment_plot
+
+
+
+# %%
+# Save GGM object as h5 file
 sg.save_ggm(ggm, "data/MOSTA_E16.5_E1S1_r3.ggm.h5")
-print(f"Time: {time.time() - start_time:.5f} s")
 
 # %%
-# 读取GGM
-start_time = time.time()
+# Load GGM object
 ggm = sg.load_ggm("data/MOSTA_E16.5_E1S1_r3.ggm.h5")
-print(f"Time: {time.time() - start_time:.5f} s")
-
-# %%
-ggm.modules_summary.to_csv("data/MOSTA_E16.5_E1S1_ggm_modules_summary_r3.csv")
-
 
 
 # %%
