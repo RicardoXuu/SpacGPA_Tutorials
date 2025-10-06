@@ -64,18 +64,7 @@ M1_anno = ggm.get_module_anno('M1')
 # %%
 sg.module_network_plot(
     nodes_edges = M1_edges,
-    nodes_anno = M1_anno,
-    show_nodes = 30,
-    weight_power = 1,
-    layout  = 'spring',
-    layout_k = 1,
-    layout_iterations= 50,
-    label_font_size= 20,
-    highlight_label_font_size= 20,
-    highlight_label_color= 'salmon',
-    plot = True,
-    save_plot_as = None,
-    save_network_as = None
+    nodes_anno = M1_anno
 ) 
 # %%
 
