@@ -1,6 +1,6 @@
 
 # %%
-# Analyze MOSTA E16.5 E2S7 Spatial Transcriptomics Data using SpacGPA
+# Analyze MOSTA E16.5 E2S5 Spatial Transcriptomics Data using SpacGPA
 # Data source: https://db.cngb.org/stomics/mosta/
 import numpy as np
 import pandas as pd
@@ -25,7 +25,7 @@ os.chdir(workdir)
 
 # %%
 # Load Spatial Transcriptomics data
-adata = sc.read_h5ad("data/Stereo-seq/MOSTA/E16.5_E2S7.MOSTA.h5ad")
+adata = sc.read_h5ad("data/Stereo-seq/MOSTA/E16.5_E2S5.MOSTA.h5ad")
 adata.var_names_make_unique()
 print(adata)
 
@@ -40,7 +40,7 @@ print(adata.X.shape)
 
 # %%
 # Calculate Coexpression Network using SpacGPA
-ggm = sg.create_ggm(adata,project_name = "E16.5_E2S7")  
+ggm = sg.create_ggm(adata,project_name = "E16.5_E2S5")  
 
 # %%
 # show significant co-expression gene pairs
@@ -92,11 +92,11 @@ ggm.mp_enrichment_analysis(species='mouse',padjust_method="BH",pvalue_cutoff=0.0
 
 # %%
 # Save GGM object as h5 file
-sg.save_ggm(ggm, "data/MOSTA_E16.5_E2S7.ggm.h5")
+sg.save_ggm(ggm, "data/MOSTA_E16.5_E2S5.ggm.h5")
 
 # %%
 # Load GGM object
-ggm = sg.load_ggm("data/MOSTA_E16.5_E2S7.ggm.h5")
+ggm = sg.load_ggm("data/MOSTA_E16.5_E2S5.ggm.h5")
 
 # %%
 # Calculate program expression in each spot
@@ -128,17 +128,24 @@ mod_cor = sg.module_similarity_plot(adata,
 
 # %%
 # integrate annotations
-sg.integrate_annotations(adata, ggm_key='ggm')
+sg.integrate_annotations(adata, ggm_key='ggm',result_anno='ggm_annotation')
 
 # %%
 # visualize integrated annotations
 sc.pl.spatial(adata, spot_size = 2, color='annotation')
 
+# %%
+sc.pl.spatial(adata, spot_size = 2, color='ggm_annotation')
+
 
 # %%
 # Save annotated anndata object
-adata.write("data/MOSTA_E16.5_E2S7_ggm_anno.h5ad")
+adata.write("data/MOSTA_E16.5_E2S5_ggm_anno.h5ad")
 
 # %%
 adata.obs
+
+# %%
+sc.pl.spatial(adata, spot_size = 3, color='M2_exp', cmap='Reds')
+
 # %%
