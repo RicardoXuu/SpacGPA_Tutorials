@@ -1,13 +1,6 @@
 SpacGPA: Spatial and single-cell Gene Program Analysis
 =============================================================================
 
-.. image:: _static/SpacGPA_Logo.png
-   :alt: SpacGPA logo
-   :align: right
-   :width: 100px
-
-.. rst-class:: lead
-
 **SpacGPA** is a GPU-accelerated toolkit that annotates spatial transcriptomes through de 
 novo interpretable gene programs. It builds co-expression networks via a **Gaussian graphical 
 model (GGM)**, identifies programs with a **modified Markov Clustering (MCL)** algorithm, 
