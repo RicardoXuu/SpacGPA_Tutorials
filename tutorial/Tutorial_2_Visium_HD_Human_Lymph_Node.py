@@ -1,8 +1,8 @@
 
 # %%
-# Analyze MOSTA E16.5 E2S5 Spatial Transcriptomics data with SpacGPA.
-# Data source: https://db.cngb.org/stomics/mosta/
-# MOSTA E16.5 E2S5 is a mouse embryo sample at embryonic day 16.5 generated with Stereo-seq.
+# Analyze Human Lymph Node Spatial Transcriptomics data with SpacGPA.
+# Data source: https://www.10xgenomics.com/cn/datasets/visium-hd-cytassist-gene-expression-libraries-human-lymph-node-v4 
+# This is a human lymph node sample generated with Visium HD.
 
 # %%
 # Import SpacGPA and other required packages.
@@ -18,14 +18,24 @@ os.chdir(workdir)
 
 ### Part 1: Gene program analysis via SpacGPA ####
 # %%
+# For Visium HD data, we recommend using the binned outputs (e.g. 16μm binning here) for analysis.
+# Before first-time use, construct the tissue_positions.csv from the tissue_positions.parquet file for easy reading.
+# Demo codes for this conversion:
+# import pandas as pd
+# df_tissue_positions=pd.read_parquet("data/visium_HD/Human_Lymph_Node/binned_outputs/square_016um/spatial/tissue_positions.parquet")
+# df_tissue_positions.to_csv("data/visium_HD/Human_Lymph_Node/binned_outputs/square_016um/spatial/tissue_position.csv", index=False, header=None)
+# df_tissue_positions.to_csv("data/visium_HD/Human_Lymph_Node/binned_outputs/square_016um/spatial/tissue_positions_list.csv", index=False, header=None)
+
+# %%
 # Load spatial transcriptomics data.
-adata = sc.read_h5ad("data/Stereo-seq/MOSTA/E16.5_E2S5.MOSTA.h5ad")
+adata = sc.read_visium("data/visium_HD/Human_Lymph_Node/binned_outputs/square_016um/",
+                       count_file="filtered_feature_bc_matrix.h5")
 adata.var_names_make_unique()
+adata.var_names = adata.var['gene_ids']
 print(adata)
 
 # %%
-# Preprocessing: use raw counts from layers['count'], then library-size normalize and log1p-transform.
-adata.X = adata.layers['count']
+# Preprocessing: library-size normalize and log1p-transform.
 sc.pp.normalize_total(adata, target_sum=1e4)
 sc.pp.log1p(adata)
 sc.pp.filter_cells(adata, min_genes=200)
@@ -34,7 +44,7 @@ print(adata.X.shape)
 
 # %%
 # Construct the co-expression network using SpacGPA (Gaussian graphical model).
-ggm = sg.create_ggm(adata,project_name = "E16.5_E2S5")  
+ggm = sg.create_ggm(adata,project_name = "Human_Lymph_Node")  
 
 # %%
 # Show statistically significant co-expression gene pairs.
@@ -99,9 +109,9 @@ print(ggm)
 
 # %%
 # Save the GGM object to HDF5 for later reuse.
-sg.save_ggm(ggm, "data/MOSTA_E16.5_E2S5.ggm.h5")
+sg.save_ggm(ggm, "data/Human_Lymph_Node.ggm.h5")
 # Then you can reload it via:
-# ggm = sg.load_ggm("data/MOSTA_E16.5_E2S5.ggm.h5")
+# ggm = sg.load_ggm("data/Human_Lymph_Node.ggm.h5")
 
 
 
@@ -171,6 +181,6 @@ sc.pl.spatial(adata, spot_size = 2, color=['annotation'], frameon=False, title='
 
 # %%
 # Save the annotated AnnData object.
-adata.write("data/MOSTA_E16.5_E2S5_ggm_anno.h5ad")
+adata.write("data/Human_Lymph_Node_ggm_anno.h5ad")
 
 # %%
