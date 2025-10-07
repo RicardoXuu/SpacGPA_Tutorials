@@ -21,10 +21,10 @@ os.chdir(workdir)
 # For Visium HD data, we recommend using the binned outputs (e.g. 16μm binning here) for analysis.
 # Before first-time use, construct the tissue_positions.csv from the tissue_positions.parquet file for easy reading.
 # Demo codes for this conversion:
-# import pandas as pd
-# df_tissue_positions=pd.read_parquet("data/visium_HD/Human_Lymph_Node/binned_outputs/square_016um/spatial/tissue_positions.parquet")
-# df_tissue_positions.to_csv("data/visium_HD/Human_Lymph_Node/binned_outputs/square_016um/spatial/tissue_position.csv", index=False, header=None)
-# df_tissue_positions.to_csv("data/visium_HD/Human_Lymph_Node/binned_outputs/square_016um/spatial/tissue_positions_list.csv", index=False, header=None)
+import pandas as pd
+df_tissue_positions=pd.read_parquet("data/visium_HD/Human_Lymph_Node/binned_outputs/square_016um/spatial/tissue_positions.parquet")
+df_tissue_positions.to_csv("data/visium_HD/Human_Lymph_Node/binned_outputs/square_016um/spatial/tissue_position.csv", index=False, header=None)
+df_tissue_positions.to_csv("data/visium_HD/Human_Lymph_Node/binned_outputs/square_016um/spatial/tissue_positions_list.csv", index=False, header=None)
 
 # %%
 # Load spatial transcriptomics data.
@@ -112,7 +112,6 @@ print(ggm)
 sg.save_ggm(ggm, "data/Human_Lymph_Node.ggm.h5")
 # Then you can reload it via:
 # ggm = sg.load_ggm("data/Human_Lymph_Node.ggm.h5")
-
 
 
 #### Part 2: Spot annotation based on program expression ####
