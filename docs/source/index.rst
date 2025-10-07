@@ -29,22 +29,12 @@ Quick Links
 -----------
 
    - **Installation** → :doc:`installation`
-   - **Quick Start** → :doc:`quickstart`
    - **Tutorials (workflows)** → :doc:`tutorials/index`
    - **API Reference** → :doc:`api/index`
-   - **Changelog** → :doc:`changelog`
 
 --------------------------------------------------------
 Table of Contents
 --------------------------------------------------------
-
-.. toctree::
-   :maxdepth: 2
-   :caption: Quick Start
-   :numbered:
-
-   installation
-   quickstart
 
 .. toctree::
    :maxdepth: 2
@@ -57,11 +47,6 @@ Table of Contents
    :caption: API Reference
 
    api/index
-
-   changelog
-   citation
-   contributing
-   license
 
 --------------------------------------------------------
 Citation & Acknowledgments
