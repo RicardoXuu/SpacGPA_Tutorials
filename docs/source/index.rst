@@ -27,23 +27,23 @@ Quick Links
 
 Table of Contents
 -----------------
-.. toctree::
-   :maxdepth: 1
-   :caption: Getting Started
+   .. toctree::
+      :maxdepth: 1
+      :caption: Getting Started
 
-   installation
+      installation
 
-.. toctree::
-   :maxdepth: 2
-   :caption: Tutorials
+   .. toctree::
+      :maxdepth: 2
+      :caption: Tutorials
 
-   tutorials/index
+      tutorials/index
 
-.. toctree::
-   :maxdepth: 2
-   :caption: API Reference
+   .. toctree::
+      :maxdepth: 2
+      :caption: API Reference
 
-   api/index
+      api/index
 
 -----------
 
