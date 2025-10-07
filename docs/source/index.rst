@@ -11,7 +11,8 @@ and label integration.
 .. image:: _static/SpacGPA_Workflow.png
    :alt: SpacGPA workflow
    :align: center
-   :width: 600px
+   :width: 800px
+
 
 **This website hosts the installation guide, in-depth
 workflows, and full API reference.**
