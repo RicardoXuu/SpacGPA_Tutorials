@@ -15,19 +15,16 @@ and label integration.
 
 **This website hosts the installation guide, in-depth
 workflows, and full API reference.**
---------------------------------------------------------
-
 
 Quick Links
 -----------
 
-   - **Installation** → :doc:`installation`
-   - **Tutorials (workflows)** → :doc:`tutorials/index`
-   - **API Reference** → :doc:`api/index`
+- **Installation** → :doc:`installation`
+- **Tutorials (workflows)** → :doc:`tutorials/index`
+- **API Reference** → :doc:`api/index`
 
---------------------------------------------------------
 Table of Contents
---------------------------------------------------------
+-----------------
 
 .. toctree::
    :maxdepth: 2
@@ -41,16 +38,14 @@ Table of Contents
 
    api/index
 
---------------------------------------------------------
 Citation & Acknowledgments
---------------------------------------------------------
+--------------------------
 
 If you use SpacGPA in your work, please cite:  
 Xu Y, Chen L, Ma S. *SpacGPA: annotating spatial transcriptomes through de novo interpretable gene programs.* bioRxiv (2025). https://doi.org/10.1101/2025.10.01.679918
 
---------------------------------------------------------
 Support & Contact
---------------------------------------------------------
+-----------------
 
 * **GitHub**  : https://github.com/MaShisongLab/SpacGPA
 * **Issues**  : Please open a ticket on GitHub Issues for bugs or feature requests
