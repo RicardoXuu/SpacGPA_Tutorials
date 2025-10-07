@@ -20,7 +20,7 @@ and label integration.
    :align: center
    :width: 600px
 
-**This website hosts the installation guide, quick-start tutorial, in-depth
+**This website hosts the installation guide, in-depth
 workflows, and full API reference.**
 --------------------------------------------------------
 
