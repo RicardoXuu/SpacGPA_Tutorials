@@ -10,8 +10,8 @@ and label integration.
 
 .. image:: _static/SpacGPA_Workflow.png
    :alt: SpacGPA workflow
-   :align: center
-   :width: 600px
+   :align: 
+   :width: 400px
 
 **This website hosts the installation guide, in-depth
 workflows, and full API reference.**
@@ -25,6 +25,12 @@ Quick Links
 
 Table of Contents
 -----------------
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Getting Started
+
+   installation
 
 .. toctree::
    :maxdepth: 2
