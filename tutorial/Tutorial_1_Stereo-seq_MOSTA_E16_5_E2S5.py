@@ -119,17 +119,6 @@ sc.pl.spatial(adata, spot_size = 2, color=['M1_exp','M2_exp','M3_exp','M4_exp','
               cmap='RdYlBu_r',ncols=5)
 
 # %%
-# Compute pairwise program similarity and plot the correlation heatmap with dendrograms.
-mod_cor = sg.module_similarity_plot(adata,
-                                    ggm_key='ggm',
-                                    corr_method='pearson',
-                                    heatmap_metric='correlation',   
-                                    fig_height=20,
-                                    fig_width=21,
-                                    dendrogram_height=0.1,
-                                    dendrogram_space=0.05)
-
-# %%
 # Assign spot-level annotations via Gaussian Mixture Models (GMMs) based on program expression.
 sg.calculate_gmm_annotations(adata, ggm_key='ggm')
 # Optionally smooth the annotations using spatial k-NN (on the 'spatial' embedding).
