@@ -11,7 +11,7 @@ and label integration.
 .. image:: _static/SpacGPA_Workflow.png
    :alt: SpacGPA workflow
    :align: center
-   :width: 700px
+   :width: 650px
 
 -----------
 
