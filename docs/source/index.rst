@@ -11,7 +11,7 @@ and label integration.
 .. image:: _static/SpacGPA_Workflow.png
    :alt: SpacGPA workflow
    :align: center
-   :width: 800px
+   :width: 700px
 
 -----------
 
@@ -47,13 +47,13 @@ Table of Contents
 
 -----------
 
-Citation & Acknowledgments
+Citation
 --------------------------
 
 If you use SpacGPA in your work, please cite:  
 Xu Y, Chen L, Ma S. *SpacGPA: annotating spatial transcriptomes through de novo interpretable gene programs.* bioRxiv (2025). https://doi.org/10.1101/2025.10.01.679918
 
-Support & Contact
+Contact
 -----------------
 
 * **GitHub**  : https://github.com/MaShisongLab/SpacGPA
