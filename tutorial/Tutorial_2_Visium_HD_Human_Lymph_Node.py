@@ -148,7 +148,7 @@ sg.smooth_annotations(adata, ggm_key = 'ggm', embedding_key = 'spatial', k_neigh
 
 
 # %%
-# Display smoothed annotations for the top 20 programs.
+# Display smoothed annotations for all identified programs.
 # If smoothing is skipped, use 'M1_anno' … 'M20_anno' instead.
 plt.rcParams["figure.figsize"] = (7, 7)
 program_list = ggm.modules_summary['module_id'] + '_anno_smooth'
