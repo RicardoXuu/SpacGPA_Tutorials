@@ -126,6 +126,13 @@ ggm.mp_enrichment.to_csv('data/MOSTA_E16.5_E2S5_mp_enrichment.csv')
 # Compute per-spot expression scores of each gene program.
 sg.calculate_module_expression(adata, ggm)
 
+# NOTE — OpenBLAS warning explanation & fix:
+# If you see: "OpenBLAS warning: precompiled NUM_THREADS exceeded, adding auxiliary array for thread metadata",
+# it means your OpenBLAS was compiled with a smaller thread cap than your machine exposes.
+# This is harmless but noisy and may slightly impact performance.
+# Workaround: limit BLAS threads at the VERY TOP of the pipeline, BEFORE importing any libraries:
+#   import os
+#   os.environ["OPENBLAS_NUM_THREADS"] = "32"   # choose a value ≤ the limit mentioned in the warning (e.g., 64)
 
 # %%
 # Visualize the spatial distribution of the top 20 program-expression scores.
@@ -167,7 +174,7 @@ sg.module_dot_plot(adata, ggm_key = 'ggm', groupby = 'annotation', scale=True,
 
 # %%
 # Integrate multiple program-derived annotations into a single label set via sg.integrate_annotations.
-sg.integrate_annotations(adata, ggm_key = 'ggm', result_anno = 'ggm_annotation')
+sg.integrate_annotations(adata, ggm_key = 'ggm', neighbor_similarity_ratio = 0.6, result_anno = 'ggm_annotation')
 # Here we integrate all programs as an example. You can specify a subset of programs via the 'modules_used' parameter.
 
 
