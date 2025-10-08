@@ -1,13 +1,13 @@
 # %% [markdown]
-# # Tutorial 2: Visium HD: Human Lymph Node
+# # Tutorial 3: Xenium Prime 5K: Human Lymph Node
 
 # %% [markdown]
 # <div style="margin:0; line-height:1.2">
 # Analyze Human Lymph Node Spatial Transcriptomics data with SpacGPA.<br/>  
 #
-# Data source: https://www.10xgenomics.com/cn/datasets/visium-hd-cytassist-gene-expression-libraries-human-lymph-node-v4  <br/> 
+# Data source: https://www.10xgenomics.com/cn/datasets/preview-data-xenium-prime-gene-expression  <br/> 
 #
-# This is a human lymph node sample generated with Visium HD.<br/>  
+# This is a human lymph node sample generated with Xenium Prime 5K.<br/>  
 # <div>
 
 # %%
@@ -18,43 +18,30 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import os
 
-
 # %%
 # Set the working directory to your local path.
 workdir = '..'
 os.chdir(workdir)
 
-
 # %% [markdown]
 # ### Part 1: Gene program analysis via SpacGPA ####
 
 # %%
-# For Visium HD data, we recommend using the binned outputs (e.g. 16μm binning here) for analysis.
-# Before first-time use, construct the tissue_positions.csv from the tissue_positions.parquet file for easy reading.
-# A demo for file conversion:
-df_tissue_positions = pd.read_parquet("data/visium_HD/Human_Lymph_Node/binned_outputs/square_016um/spatial/tissue_positions.parquet")
-df_tissue_positions.to_csv("data/visium_HD/Human_Lymph_Node/binned_outputs/square_016um/spatial/tissue_position.csv", index = False, header = None)
-df_tissue_positions.to_csv("data/visium_HD/Human_Lymph_Node/binned_outputs/square_016um/spatial/tissue_positions_list.csv", index = False, header = None)
-
-# %%
 # Load spatial transcriptomics data.
-adata = sc.read_visium("data/visium_HD/Human_Lymph_Node/binned_outputs/square_016um/",
-                       count_file = "filtered_feature_bc_matrix.h5")
+adata = sc.read_10x_h5('data/Xenium_5k/Human_Lymph_Node_5K/cell_feature_matrix.h5')
 adata.var_names_make_unique()
 adata.var_names = adata.var['gene_ids']
+meta = pd.read_csv('data/Xenium_5k/Human_Lymph_Node_5K/cells.csv.gz')
+adata.obs = meta
+adata.obsm['spatial'] = adata.obs[['x_centroid','y_centroid']].values
 print(adata)
-sc.pp.filter_cells(adata, min_genes = 1)
-print(adata.X.shape)
-
 
 # %%
-# Preprocessing: library-size normalize and log1p-transform.
-sc.pp.normalize_total(adata, target_sum = 1e4)
+# Preprocessing: log1p-transform.
 sc.pp.log1p(adata)
-sc.pp.filter_cells(adata, min_genes = 200)
+sc.pp.filter_cells(adata, min_genes=100)
 sc.pp.filter_genes(adata, min_cells = 10)
 print(adata.X.shape)
-
 
 # %%
 # Construct the co-expression network using SpacGPA (Gaussian graphical model).
@@ -113,7 +100,7 @@ print(ggm)
 
 # %%
 # Save the GGM object to HDF5 for later reuse.
-sg.save_ggm(ggm, "data/Human_Lymph_Node_HD.ggm.h5")
+sg.save_ggm(ggm, "data/Human_Lymph_Node_5K.ggm.h5")
 
 
 # %% [markdown]
@@ -194,4 +181,4 @@ sg.module_dot_plot(adata, ggm_key = 'ggm', groupby = 'leiden_ggm', scale=True,
 
 # %%
 # Save the annotated AnnData object.
-adata.write("data/Human_Lymph_Node_HD_ggm_anno.h5ad")
+adata.write("data/Human_Lymph_Node_5K_ggm_anno.h5ad")
