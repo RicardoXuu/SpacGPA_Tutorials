@@ -147,3 +147,22 @@ sc.pl.spatial(adata, spot_size = 2, color = ['annotation'], frameon = False, tit
 adata.write("data/MOSTA_E16.5_E2S5_ggm_anno.h5ad")
 
 # %%
+adata = sc.read_h5ad("data/MOSTA_E16.5_E2S5_ggm_anno.h5ad")
+ggm = sg.load_ggm("data/MOSTA_E16.5_E2S5.ggm.h5")
+# %%
+
+# %%
+# Visualize the M1 network with nodes highlighted by a selected GO or MP term ID.
+M1_edges = ggm.get_module_edges('M1')
+M1_anno = ggm.get_module_anno('M1')
+print(ggm.go_enrichment.iloc[0, :6])
+ggm.module_network_plot(module_id="M1", highlight_anno = "GO:0030016", seed = 2)
+print(ggm.mp_enrichment.iloc[0, :5])
+ggm.module_network_plot(module_id="M1", highlight_anno = "MP:0005369", seed = 2)
+
+# %%
+M1_anno
+# %%
+ggm.module_go_enrichment_plot(shown_modules = ['M1','M3'], go_per_module = 2)
+
+# %%
