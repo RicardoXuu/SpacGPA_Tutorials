@@ -1,5 +1,5 @@
 # %% [markdown]
-# # Tutorial 3: Xenium Prime 5K: Human Lymph Node
+## Tutorial 3: Xenium Prime 5K: Human Lymph Node
 
 # %% [markdown]
 # <div style="margin:0; line-height:1.2">
@@ -24,7 +24,7 @@ workdir = '..'
 os.chdir(workdir)
 
 # %% [markdown]
-# ### Part 1: Gene program analysis via SpacGPA ####
+#### Part 1: Gene program analysis via SpacGPA ###
 
 # %%
 # Load spatial transcriptomics data.
@@ -104,7 +104,7 @@ sg.save_ggm(ggm, "data/Human_Lymph_Node_5K.ggm.h5")
 
 
 # %% [markdown]
-# ### Part 2: Spot annotation based on program expression ###
+#### Part 2: Spot annotation based on program expression ###
 
 # %%
 # Compute per-spot expression scores of each gene program.
@@ -156,7 +156,7 @@ sc.pl.spatial(adata, size = 1.2, alpha_img = 0.5, bw = True, color = ['ggm_annot
 
 
 # %% [markdown]
-# ### Part 3: Cluster spots based a dimensionality reduction of program expression ###
+#### Part 3: Cluster spots based a dimensionality reduction of program expression ###
 
 
 # %%
