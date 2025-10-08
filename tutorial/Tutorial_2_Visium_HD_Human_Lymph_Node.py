@@ -84,7 +84,7 @@ print(ggm.modules_summary.head(5))
 
 # %%
 # Visualize the subnetwork of program M1 (top 30 genes by degree/connectivity for readability).
-ggm.module_network_plot(module_id = 'M1', seed = 1) 
+ggm.module_network_plot(module_id = 'M1', seed = 2, layout_iterations = 55) 
 # Fix layout randomness for reproducibility via set seed.
 
 # %%
@@ -102,9 +102,9 @@ ggm.module_go_enrichment_plot(shown_modules = ggm.modules_summary['module_id'].t
 # %%
 # Visualize the M1 network with nodes highlighted by a selected GO or MP term.
 print(ggm.go_enrichment.iloc[0, :6])
-ggm.module_network_plot(module_id = 'M1', highlight_anno = "angiogenesis", seed = 1)
+ggm.module_network_plot(module_id = 'M1', highlight_anno = "angiogenesis", seed = 2, layout_iterations = 55)
 print(ggm.go_enrichment.iloc[1, :6])
-ggm.module_network_plot(module_id = 'M1', highlight_anno = "cell adhesion", seed = 1)
+ggm.module_network_plot(module_id = 'M1', highlight_anno = "cell adhesion", seed = 2, layout_iterations = 55)
 
 # %%
 # Print a summary of the GGM analysis.
@@ -195,3 +195,17 @@ sg.module_dot_plot(adata, ggm_key = 'ggm', groupby = 'leiden_ggm', scale=True,
 # %%
 # Save the annotated AnnData object.
 adata.write("data/Human_Lymph_Node_HD_ggm_anno.h5ad")
+
+
+# %%
+adata = sc.read("data/Human_Lymph_Node_HD_ggm_anno.h5ad")
+ggm = sg.load_ggm("data/Human_Lymph_Node_HD.ggm.h5")
+
+# %%
+sg.module_network_plot(ggm, 
+                       module_id = 'M1', 
+                       seed = 2, 
+                       layout_iterations = 55
+                       )
+
+# %%
