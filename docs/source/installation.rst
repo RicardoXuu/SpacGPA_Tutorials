@@ -26,7 +26,7 @@ Option A — Quick Installation
 
    .. code-block:: bash
 
-      pip install -e .
+      pip install .
 
 Option B — Create a conda environment
 -------------------------------------
@@ -46,7 +46,7 @@ Option B — Create a conda environment
 
    .. code-block:: bash
 
-      pip install -e .
+      pip install .
       conda deactivate
 
 .. note::
