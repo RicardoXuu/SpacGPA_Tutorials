@@ -93,7 +93,7 @@ sg.save_ggm(ggm, "data/MOSTA_E16.5_E2S5.ggm.h5")
 # ggm = sg.load_ggm("data/MOSTA_E16.5_E2S5.ggm.h5")
 
 # %%
-#### Part 2: Spot annotation based on program expression ####
+### Part 2: Spot annotation based on program expression ###
 # %%
 # Compute per-spot expression scores of each gene program.
 sg.calculate_module_expression(adata, ggm)
