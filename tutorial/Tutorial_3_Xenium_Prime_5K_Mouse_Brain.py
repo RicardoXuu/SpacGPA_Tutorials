@@ -125,7 +125,7 @@ sc.pl.spatial(adata, spot_size = 30, color = program_list[:20], cmap = 'Reds', n
 # %%
 # Compute pairwise program similarity and plot the correlation heatmap with dendrograms.
 sg.module_similarity_plot(adata, ggm_key = 'ggm', corr_method = 'pearson', heatmap_metric = 'correlation', 
-                          fig_height = 9, fig_width = 10, dendrogram_height = 0.1, dendrogram_space = 0.12, return_summary = False)
+                          fig_height = 19, fig_width = 20, dendrogram_height = 0.1, dendrogram_space = 0.06, return_summary = False)
 
 # %%
 # Assign spot-level annotations via Gaussian Mixture Models (GMMs) based on program expression.
@@ -156,7 +156,6 @@ sc.pl.spatial(adata, spot_size = 30, color = ['ggm_annotation'], palette = adata
 # %% [markdown]
 #### Part 3: Cluster spots based a dimensionality reduction of program expression ###
 
-
 # %%
 # Build a neighborhood graph based on program expression and perform clustering.
 sc.pp.neighbors(adata, 
@@ -175,15 +174,8 @@ sc.pl.spatial(adata, spot_size = 30, color = ['louvan_ggm'], frameon = False, ti
 # %%
 # Summarize program-expression across the leiden clusters clusters as a dot plot.
 sg.module_dot_plot(adata, ggm_key = 'ggm', groupby = 'leiden_ggm', scale=True,
-                   dendrogram_height = 0.15, dendrogram_space = 0.05, fig_height=8, fig_width = 14, axis_fontsize = 10)
+                   dendrogram_height = 0.1, dendrogram_space = 0.03, fig_height=14, fig_width = 20, axis_fontsize = 10)
 
 # %%
 # Save the annotated AnnData object.
 adata.write("data/Mouse_Brain_5K_ggm_anno.h5ad")
-
-# %%
-adata = sc.read_h5ad("data/Mouse_Brain_5K_ggm_anno.h5ad")
-ggm = sg.load_ggm("data/Mouse_Brain_5K.ggm.h5")
-# %%
-
-# %%
