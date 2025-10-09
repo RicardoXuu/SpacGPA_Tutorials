@@ -1,13 +1,13 @@
 # %% [markdown]
-# # Tutorial 2: Visium HD: Human Lymph Node
+## Tutorial 2: Visium HD: Human Tonsil
 
 # %% [markdown]
 # <div style="margin:0; line-height:1.2">
-# Analyze Human Lymph Node Spatial Transcriptomics data with SpacGPA.<br/>  
+# Analyze human tonsil spatial transcriptomics data with SpacGPA.<br/>  
 #
-# Data source: https://www.10xgenomics.com/cn/datasets/visium-hd-cytassist-gene-expression-libraries-human-lymph-node-v4  <br/> 
+# Data source: https://www.10xgenomics.com/datasets/visium-hd-cytassist-gene-expression-human-tonsil-fresh-frozen  <br/> 
 #
-# This is a human lymph node sample generated with Visium HD.<br/>  
+# This is a human tonsil sample generated with Visium HD.<br/>  
 # <div>
 
 # %%
@@ -18,34 +18,29 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import os
 
-
 # %%
 # Set the working directory to your local path.
 workdir = '..'
 os.chdir(workdir)
 
-
 # %% [markdown]
-# ### Part 1: Gene program analysis via SpacGPA ####
+#### Part 1: Gene program analysis via SpacGPA ###
 
 # %%
 # For Visium HD data, we recommend using the binned outputs (e.g. 16μm binning here) for analysis.
 # Before first-time use, construct the tissue_positions.csv from the tissue_positions.parquet file for easy reading.
 # A demo for file conversion:
-df_tissue_positions = pd.read_parquet("data/visium_HD/Human_Lymph_Node/binned_outputs/square_016um/spatial/tissue_positions.parquet")
-df_tissue_positions.to_csv("data/visium_HD/Human_Lymph_Node/binned_outputs/square_016um/spatial/tissue_position.csv", index = False, header = None)
-df_tissue_positions.to_csv("data/visium_HD/Human_Lymph_Node/binned_outputs/square_016um/spatial/tissue_positions_list.csv", index = False, header = None)
+df_tissue_positions = pd.read_parquet("data/visium_HD/Human_Tonsil/binned_outputs/square_016um/spatial/tissue_positions.parquet")
+df_tissue_positions.to_csv("data/visium_HD/Human_Tonsil/binned_outputs/square_016um/spatial/tissue_position.csv", index = False, header = None)
+df_tissue_positions.to_csv("data/visium_HD/Human_Tonsil/binned_outputs/square_016um/spatial/tissue_positions_list.csv", index = False, header = None)
 
 # %%
 # Load spatial transcriptomics data.
-adata = sc.read_visium("data/visium_HD/Human_Lymph_Node/binned_outputs/square_016um/",
+adata = sc.read_visium("data/visium_HD/Human_Tonsil/binned_outputs/square_016um/",
                        count_file = "filtered_feature_bc_matrix.h5")
 adata.var_names_make_unique()
 adata.var_names = adata.var['gene_ids']
 print(adata)
-sc.pp.filter_cells(adata, min_genes = 1)
-print(adata.X.shape)
-
 
 # %%
 # Preprocessing: library-size normalize and log1p-transform.
@@ -55,11 +50,9 @@ sc.pp.filter_cells(adata, min_genes = 200)
 sc.pp.filter_genes(adata, min_cells = 10)
 print(adata.X.shape)
 
-
 # %%
 # Construct the co-expression network using SpacGPA (Gaussian graphical model).
-ggm = sg.create_ggm(adata, project_name = "Human Lymph Node")
-
+ggm = sg.create_ggm(adata, project_name = "Human Tonsil")
 
 # %%
 # Show statistically significant co-expression gene pairs.
@@ -70,21 +63,18 @@ print(ggm.SigEdges.head(5))
 # Which will also provide the ENSEMBL to gene symbol mapping file.
 sg.get_GO_annoinfo(species_name = 'human')
 
-
 # %%
 # Identify gene programs using the MCL-Hub algorithm (set inflation to 2).
 ggm.find_modules(method = 'mcl-hub', inflation = 2, convert_to_symbols = True, species = 'human')
 # the parameter 'convert_to_symbols' provides gene symbols in the output programs for better interpretability.
 
-
 # %%
 # Inspect the top 5 identified gene programs.
 print(ggm.modules_summary.head(5))
 
-
 # %%
 # Visualize the subnetwork of program M1 (top 30 genes by degree/connectivity for readability).
-ggm.module_network_plot(module_id = 'M1', seed = 2, layout_iterations = 55) 
+ggm.module_network_plot(module_id = 'M1', seed = 3)
 # Fix layout randomness for reproducibility via set seed.
 
 # %%
@@ -92,32 +82,36 @@ ggm.module_network_plot(module_id = 'M1', seed = 2, layout_iterations = 55)
 # sg.download_go_annotations(species = 'human', outdir = 'data/go_annotations')
 ggm.go_enrichment_analysis(species = 'human', padjust_method = "BH", pvalue_cutoff = 0.05)
 
-
 # %%
 # Visualize top enriched GO terms for all identified programs.
 ggm.module_go_enrichment_plot(shown_modules = ggm.modules_summary['module_id'].tolist(), go_per_module = 1,
-                              fig_width = 4.5)
-
+                              fig_width = 5.5)
 
 # %%
-# Visualize the M1 network with nodes highlighted by a selected GO or MP term.
-print(ggm.go_enrichment.iloc[0, :6])
-ggm.module_network_plot(module_id = 'M1', highlight_anno = "angiogenesis", seed = 2, layout_iterations = 55)
-print(ggm.go_enrichment.iloc[1, :6])
-ggm.module_network_plot(module_id = 'M1', highlight_anno = "cell adhesion", seed = 2, layout_iterations = 55)
+# Visualize the M1 network with nodes highlighted by a selected GO term.
+# Program M1 is associated with cell adhesion.
+M1_GO_Enrich = ggm.go_enrichment[ggm.go_enrichment['module_id'] == 'M1']
+print(M1_GO_Enrich.iloc[:3, :6])
+ggm.module_network_plot(module_id = 'M1', highlight_anno = "cell adhesion", seed = 3, layout_iterations = 55)
+
+# %%
+# Visualize the M8 network with nodes highlighted by a selected GO term.
+# Program M8 is associated with B cell.
+M8_GO_Enrich = ggm.go_enrichment[ggm.go_enrichment['module_id'] == 'M8']
+print(M8_GO_Enrich.iloc[:3, :6])
+ggm.module_network_plot(module_id = 'M8', highlight_anno = "B cell receptor signaling pathway", seed = 3, layout_iterations = 55)
+
 
 # %%
 # Print a summary of the GGM analysis.
 print(ggm)
 
-
 # %%
 # Save the GGM object to HDF5 for later reuse.
-sg.save_ggm(ggm, "data/Human_Lymph_Node_HD.ggm.h5")
-
+sg.save_ggm(ggm, "data/Human_Tonsil_HD.ggm.h5")
 
 # %% [markdown]
-# ### Part 2: Spot annotation based on program expression ###
+#### Part 2: Spot annotation based on program expression ###
 
 # %%
 # Compute per-spot expression scores of each gene program.
@@ -128,13 +122,13 @@ sg.calculate_module_expression(adata, ggm)
 # Visualize the spatial distribution of the top 20 program-expression scores.
 plt.rcParams["figure.figsize"] = (7, 7)
 program_list = ggm.modules_summary['module_id'] + '_exp'
-sc.pl.spatial(adata, size = 1.2, alpha_img = 0.5, color = program_list, cmap = 'RdYlBu_r', ncols = 5)
+sc.pl.spatial(adata, size = 1.2, alpha_img = 0.5, bw = True, color = program_list[:20], cmap = 'Reds', ncols = 4)
 
 
 # %%
 # Compute pairwise program similarity and plot the correlation heatmap with dendrograms.
 sg.module_similarity_plot(adata, ggm_key = 'ggm', corr_method = 'pearson', heatmap_metric = 'correlation', 
-                          fig_height = 8, fig_width = 9, dendrogram_height = 0.1, dendrogram_space = 0.12, return_summary = False)
+                          fig_height = 13, fig_width = 14, dendrogram_height = 0.1, dendrogram_space = 0.08, return_summary = False)
 
 
 # %%
@@ -148,11 +142,11 @@ sg.smooth_annotations(adata, ggm_key = 'ggm', embedding_key = 'spatial', k_neigh
 
 
 # %%
-# Display smoothed annotations for all identified programs.
+# Display smoothed annotations for top 20 programs.
 # If smoothing is skipped, use 'M1_anno' … 'M20_anno' instead.
 plt.rcParams["figure.figsize"] = (7, 7)
 program_list = ggm.modules_summary['module_id'] + '_anno_smooth'
-sc.pl.spatial(adata, size = 1.2, alpha_img = 0.5, bw = True, color = program_list, legend_loc = None, ncols = 5)
+sc.pl.spatial(adata, size = 1.2, alpha_img = 0.5, bw = True, color = program_list[:20], legend_loc = None, ncols = 4)
 # Where the blue nodes indicate the spots annotated by the program, and gray nodes are unassigned.
 
 
@@ -169,7 +163,7 @@ sc.pl.spatial(adata, size = 1.2, alpha_img = 0.5, bw = True, color = ['ggm_annot
 
 
 # %% [markdown]
-# ### Part 3: Cluster spots based a dimensionality reduction of program expression ###
+#### Part 3: Cluster spots based a dimensionality reduction of program expression ###
 
 
 # %%
@@ -177,8 +171,8 @@ sc.pl.spatial(adata, size = 1.2, alpha_img = 0.5, bw = True, color = ['ggm_annot
 sc.pp.neighbors(adata, 
                 use_rep='module_expression_scaled',
                 n_pcs=adata.obsm['module_expression_scaled'].shape[1])
-sc.tl.leiden(adata, resolution=1, key_added='leiden_ggm')
-sc.tl.louvain(adata, resolution=1, key_added='louvan_ggm')
+sc.tl.leiden(adata, resolution=2, key_added='leiden_ggm')
+sc.tl.louvain(adata, resolution=2, key_added='louvan_ggm')
 
 # %%
 # Visualize the clustering results.
@@ -194,18 +188,9 @@ sg.module_dot_plot(adata, ggm_key = 'ggm', groupby = 'leiden_ggm', scale=True,
 
 # %%
 # Save the annotated AnnData object.
-adata.write("data/Human_Lymph_Node_HD_ggm_anno.h5ad")
+adata.write("data/Human_Tonsil_HD_ggm_anno.h5ad")
 
 
 # %%
-adata = sc.read("data/Human_Lymph_Node_HD_ggm_anno.h5ad")
-ggm = sg.load_ggm("data/Human_Lymph_Node_HD.ggm.h5")
-
-# %%
-sg.module_network_plot(ggm, 
-                       module_id = 'M1', 
-                       seed = 2, 
-                       layout_iterations = 55
-                       )
-
-# %%
+adata = sc.read("data/Human_Tonsil_HD_ggm_anno.h5ad")
+ggm = sg.load_ggm("data/Human_Tonsil_HD.ggm.h5")

@@ -1,13 +1,13 @@
 # %% [markdown]
-## Tutorial 3: Xenium Prime 5K: Human Lymph Node
+## Tutorial 3: Xenium Prime 5K: Mouse Brain
 
 # %% [markdown]
 # <div style="margin:0; line-height:1.2">
-# Analyze Human Lymph Node Spatial Transcriptomics data with SpacGPA.<br/>  
+# Analyze mouse brain spatial transcriptomics data with SpacGPA.<br/>  
 #
-# Data source: https://www.10xgenomics.com/cn/datasets/preview-data-xenium-prime-gene-expression  <br/> 
+# Data source: https://www.10xgenomics.com/datasets/xenium-prime-fresh-frozen-mouse-brain  <br/> 
 #
-# This is a human lymph node sample generated with Xenium Prime 5K.<br/>  
+# This is a mouse brain sample generated with Xenium Prime 5K.<br/>  
 # <div>
 
 # %%
@@ -29,22 +29,18 @@ os.chdir(workdir)
 # %%
 # Load spatial transcriptomics data.
 # Read the count matrix from the 10x Genomics Cell Ranger output.
-adata = sc.read_10x_h5('data/Xenium_5k/Human_Lymph_Node_5K/cell_feature_matrix.h5')
+adata = sc.read_10x_h5('data/Xenium_5k/Mouse_Brain_5K/cell_feature_matrix.h5')
 adata.var_names_make_unique()
 adata.var_names = adata.var['gene_ids']
 # Read the cell metadata (including spatial coordinates) from the provided CSV file.
-meta = pd.read_csv('data/Xenium_5k/Human_Lymph_Node_5K/cells.csv.gz')
+meta = pd.read_csv('data/Xenium_5k/Mouse_Brain_5K/cells.csv.gz')
 meta.index = meta['cell_id'].astype(str)
 meta = meta.reindex(adata.obs_names)
 adata.obs = adata.obs.join(meta, how='left')
-# Read the cell type annotation from the provided CSV file.
-cell_type = pd.read_csv('data/Xenium_5k/Human_Lymph_Node_5K/Xenium_Prime_Human_Lymph_Node_Reactive_FFPE_cell_types.csv')
-cell_type.index = cell_type['cell_id'].astype(str)
-adata.obs.loc[cell_type.index, 'cell_type'] = cell_type['group'].values
 # Set the spatial coordinates.
-adata.obs['cell_type'] = cell_type['group']
 adata.obsm['spatial'] = adata.obs[['x_centroid','y_centroid']].values
 print(adata)
+
 
 
 # %%
@@ -57,11 +53,11 @@ print(adata.X.shape)
 # %%
 # Visualize the provided cell type annotation.
 plt.rcParams["figure.figsize"] = (4.5, 6)
-sc.pl.spatial(adata, spot_size = 20, color = 'cell_type', frameon = False, title = 'Cell type annotation')
+sc.pl.spatial(adata, spot_size = 30, color = 'cell_type', frameon = False, title = 'Cell type annotation')
 
 # %%
 # Construct the co-expression network using SpacGPA (Gaussian graphical model).
-ggm = sg.create_ggm(adata, project_name = "Human Lymph Node")
+ggm = sg.create_ggm(adata, project_name = "Mouse Brain")
 
 # %%
 # Show statistically significant co-expression gene pairs.
@@ -101,7 +97,7 @@ print(ggm)
 
 # %%
 # Save the GGM object to HDF5 for later reuse.
-sg.save_ggm(ggm, "data/Human_Lymph_Node_5K.ggm.h5")
+sg.save_ggm(ggm, "data/Mouse_Brain_5K.ggm.h5")
 
 # %% [markdown]
 #### Part 2: Spot annotation based on program expression ###
@@ -114,7 +110,7 @@ sg.calculate_module_expression(adata, ggm)
 # Visualize the spatial distribution of all program-expression scores.
 plt.rcParams["figure.figsize"] = (7, 7)
 program_list = ggm.modules_summary['module_id'] + '_exp'
-sc.pl.spatial(adata, spot_size = 20, color = program_list, cmap = 'RdYlBu_r', ncols = 6)
+sc.pl.spatial(adata, spot_size = 30, color = program_list, cmap = 'RdYlBu_r', ncols = 6)
 
 # %%
 # Compute pairwise program similarity and plot the correlation heatmap with dendrograms.
@@ -129,7 +125,7 @@ sg.calculate_gmm_annotations(adata, ggm_key = 'ggm')
 # Display annotations for all identified programs.
 plt.rcParams["figure.figsize"] = (7, 7)
 program_list = ggm.modules_summary['module_id'] + '_anno'
-sc.pl.spatial(adata, spot_size = 20, color = program_list, legend_loc = None, ncols = 6)
+sc.pl.spatial(adata, spot_size = 30, color = program_list, legend_loc = None, ncols = 6)
 # Where the blue nodes indicate the spots annotated by the program, and gray nodes are unassigned.
 
 # %%
@@ -145,8 +141,8 @@ sg.integrate_annotations(adata, ggm_key = 'ggm', use_smooth = False, neighbor_si
 # %%
 # Visualize the integrated annotation.
 plt.rcParams["figure.figsize"] = (4.5, 6)
-sc.pl.spatial(adata, spot_size = 20, color = ['ggm_annotation'], frameon = False, title = 'Integrated annotation')
+sc.pl.spatial(adata, spot_size = 30, color = ['ggm_annotation'], frameon = False, title = 'Integrated annotation')
 
 # %%
 # Save the annotated AnnData object.
-adata.write("data/Human_Lymph_Node_5K_ggm_anno.h5ad")
+adata.write("data/Mouse_Brain_5K_ggm_anno.h5ad")
