@@ -17,6 +17,8 @@ import scanpy as sc
 import matplotlib.pyplot as plt
 import pandas as pd
 import os
+import warnings
+warnings.filterwarnings("ignore", message=r".*Variable names are not unique.*")
 
 # %%
 # Set the working directory to your local path.
@@ -73,26 +75,18 @@ ggm.find_modules(method = 'mcl-hub', inflation = 2, convert_to_symbols = True, s
 print(ggm.modules_summary.head(5))
 
 # %%
-# Visualize the subnetwork of program M1 (top 30 genes by degree/connectivity for readability).
-ggm.module_network_plot(module_id = 'M1', seed = 3)
+# Visualize the subnetwork of program M8 (top 30 genes by degree/connectivity for readability).
+ggm.module_network_plot(module_id = 'M8', seed = 1, layout_iterations = 55)
 # Fix layout randomness for reproducibility via set seed.
 
 # %%
 # Gene Ontology (GO) enrichment analysis with BH FDR control and p-value threshold 0.05.
-# sg.download_go_annotations(species = 'human', outdir = 'data/go_annotations')
 ggm.go_enrichment_analysis(species = 'human', padjust_method = "BH", pvalue_cutoff = 0.05)
 
 # %%
 # Visualize top enriched GO terms for all identified programs.
-ggm.module_go_enrichment_plot(shown_modules = ggm.modules_summary['module_id'].tolist(), go_per_module = 1,
-                              fig_width = 5.5)
-
-# %%
-# Visualize the M1 network with nodes highlighted by a selected GO term.
-# Program M1 is associated with cell adhesion.
-M1_GO_Enrich = ggm.go_enrichment[ggm.go_enrichment['module_id'] == 'M1']
-print(M1_GO_Enrich.iloc[:3, :6])
-ggm.module_network_plot(module_id = 'M1', highlight_anno = "cell adhesion", seed = 3, layout_iterations = 55)
+program_list = ggm.modules_summary['module_id'].tolist()
+ggm.module_go_enrichment_plot(shown_modules = program_list[:10], go_per_module = 1)
 
 # %%
 # Visualize the M8 network with nodes highlighted by a selected GO term.
@@ -152,13 +146,13 @@ sc.pl.spatial(adata, size = 1.2, alpha_img = 0.5, bw = True, color = program_lis
 
 # %%
 # Integrate multiple program-derived annotations into a single label set via sg.integrate_annotations.
-sg.integrate_annotations(adata, ggm_key = 'ggm', result_anno = 'ggm_annotation')
+sg.integrate_annotations(adata, ggm_key = 'ggm', result_anno = 'ggm_annotation', neighbor_similarity_ratio = 0.6)
 # Here we integrate all programs as an example. You can specify a subset of programs via the 'modules_used' parameter.
 
 
 # %%
 # Visualize the integrated annotation.
-plt.rcParams["figure.figsize"] = (3, 6)
+plt.rcParams["figure.figsize"] = (4, 6)
 sc.pl.spatial(adata, size = 1.2, alpha_img = 0.5, bw = True, color = ['ggm_annotation'], frameon = False, title = 'Integrated annotation')
 
 
@@ -184,7 +178,7 @@ sc.pl.spatial(adata, size = 1.2, alpha_img = 0.5, bw = True, color = ['louvan_gg
 # %%
 # Summarize program-expression across the leiden clusters clusters as a dot plot.
 sg.module_dot_plot(adata, ggm_key = 'ggm', groupby = 'leiden_ggm', scale=True,
-                   dendrogram_height = 0.1, dendrogram_space = 0.08, fig_height=6, fig_width = 8, axis_fontsize = 10)
+                   dendrogram_height = 0.15, dendrogram_space = 0.05, fig_height=8, fig_width = 14, axis_fontsize = 10)
 
 # %%
 # Save the annotated AnnData object.
@@ -192,5 +186,6 @@ adata.write("data/Human_Tonsil_HD_ggm_anno.h5ad")
 
 
 # %%
-adata = sc.read("data/Human_Tonsil_HD_ggm_anno.h5ad")
+adata = sc.read_h5ad("data/Human_Tonsil_HD_ggm_anno.h5ad")
 ggm = sg.load_ggm("data/Human_Tonsil_HD.ggm.h5")
+# %%

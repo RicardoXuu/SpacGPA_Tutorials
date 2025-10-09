@@ -38,10 +38,8 @@ meta.index = meta['cell_id'].astype(str)
 meta = meta.reindex(adata.obs_names)
 adata.obs = adata.obs.join(meta, how='left')
 # Set the spatial coordinates.
-adata.obsm['spatial'] = adata.obs[['x_centroid','y_centroid']].values
+adata.obsm['spatial'] = adata.obs[['y_centroid','x_centroid']].values*[-1,-1]
 print(adata)
-
-
 
 # %%
 # Preprocessing: log1p-transform.
@@ -51,9 +49,9 @@ sc.pp.filter_genes(adata, min_cells = 10)
 print(adata.X.shape)
 
 # %%
-# Visualize the provided cell type annotation.
+# Visualize the total UMI counts per spot.
 plt.rcParams["figure.figsize"] = (4.5, 6)
-sc.pl.spatial(adata, spot_size = 30, color = 'cell_type', frameon = False, title = 'Cell type annotation')
+sc.pl.spatial(adata, spot_size = 30, color = 'total_counts', frameon = False, title = 'Total UMI counts')
 
 # %%
 # Construct the co-expression network using SpacGPA (Gaussian graphical model).
@@ -65,7 +63,7 @@ print(ggm.SigEdges.head(5))
 
 # %%
 # Identify gene programs using the MCL-Hub algorithm (set inflation to 2).
-ggm.find_modules(method = 'mcl-hub', inflation = 2, convert_to_symbols = True, species = 'human')
+ggm.find_modules(method = 'mcl-hub', inflation = 2, convert_to_symbols = True, species = 'mouse')
 # the parameter 'convert_to_symbols' provides gene symbols in the output programs for better interpretability.
 
 # %%
@@ -73,23 +71,35 @@ ggm.find_modules(method = 'mcl-hub', inflation = 2, convert_to_symbols = True, s
 print(ggm.modules_summary.head(5))
 
 # %%
-# Visualize the subnetwork of program M1 (top 30 genes by degree/connectivity for readability).
-ggm.module_network_plot(module_id = 'M1', seed = 2, layout_iterations = 60) 
+# Visualize the subnetwork of program M4 (top 30 genes by degree/connectivity for readability).
+ggm.module_network_plot(module_id = 'M4', seed = 2, layout_iterations = 60) 
 # Fix layout randomness for reproducibility via set seed.
 
 # %%
 # Gene Ontology (GO) enrichment analysis with BH FDR control and p-value threshold 0.05.
-# sg.download_go_annotations(species = 'human', outdir = 'data/go_annotations')
-ggm.go_enrichment_analysis(species = 'human', padjust_method = "BH", pvalue_cutoff = 0.05)
+ggm.go_enrichment_analysis(species = 'mouse', padjust_method = "BH", pvalue_cutoff = 0.05)
 
 # %%
-# Visualize top enriched GO terms for top 5 identified programs.
-ggm.module_go_enrichment_plot(shown_modules = ['M1','M2','M3','M4','M5'], go_per_module = 1)
+# Visualize top enriched GO terms for top 20 identified programs.
+program_list = ggm.modules_summary['module_id'].tolist()
+ggm.module_go_enrichment_plot(shown_modules = program_list[:10], go_per_module = 1)
 
 # %%
-# Visualize the M1 network with nodes highlighted by a selected GO or MP term.
-print(ggm.go_enrichment.iloc[0, :6])
-ggm.module_network_plot(module_id = 'M1', highlight_anno = "T cell activation", seed = 2, layout_iterations = 60)
+# Mammalian Phenotype (MP) Ontology enrichment analysis with BH FDR control and p-value threshold 0.05.
+ggm.mp_enrichment_analysis(species = 'mouse', padjust_method = "BH", pvalue_cutoff = 0.05)
+
+# %%
+# Visualize top enriched MP terms for top 20 identified programs.
+ggm.module_mp_enrichment_plot(shown_modules = program_list[:10], mp_per_module = 1)
+
+# %%
+# Visualize the M4 network with nodes highlighted by a selected GO or MP term.
+M4_GO_Enrich = ggm.go_enrichment[ggm.go_enrichment['module_id'] == 'M4']
+print(M4_GO_Enrich.iloc[:3, :6])
+ggm.module_network_plot(module_id = 'M4', highlight_anno = "dendrite", seed = 2, layout_iterations = 55)
+M4_MP_Enrich = ggm.mp_enrichment[ggm.mp_enrichment['module_id'] == 'M4']
+print(M4_MP_Enrich.iloc[:3, :5])
+ggm.module_network_plot(module_id = 'M4', highlight_anno = "abnormal CNS synaptic transmission", seed = 2, layout_iterations = 55)
 
 # %%
 # Print a summary of the GGM analysis.
@@ -107,10 +117,10 @@ sg.save_ggm(ggm, "data/Mouse_Brain_5K.ggm.h5")
 sg.calculate_module_expression(adata, ggm)
 
 # %%
-# Visualize the spatial distribution of all program-expression scores.
+# Visualize the spatial distribution of the top 20 program-expression scores.
 plt.rcParams["figure.figsize"] = (7, 7)
 program_list = ggm.modules_summary['module_id'] + '_exp'
-sc.pl.spatial(adata, spot_size = 30, color = program_list, cmap = 'RdYlBu_r', ncols = 6)
+sc.pl.spatial(adata, spot_size = 30, color = program_list[:20], cmap = 'Reds', ncols = 5)
 
 # %%
 # Compute pairwise program similarity and plot the correlation heatmap with dendrograms.
@@ -122,16 +132,15 @@ sg.module_similarity_plot(adata, ggm_key = 'ggm', corr_method = 'pearson', heatm
 sg.calculate_gmm_annotations(adata, ggm_key = 'ggm')
 
 # %%
-# Display annotations for all identified programs.
-plt.rcParams["figure.figsize"] = (7, 7)
-program_list = ggm.modules_summary['module_id'] + '_anno'
-sc.pl.spatial(adata, spot_size = 30, color = program_list, legend_loc = None, ncols = 6)
-# Where the blue nodes indicate the spots annotated by the program, and gray nodes are unassigned.
+# Optionally smooth the annotations using spatial k-NN (on the 'spatial' embedding).
+sg.smooth_annotations(adata, ggm_key = 'ggm', embedding_key = 'spatial', k_neighbors = 24)
 
 # %%
-# Summarize program-expression across the existing annotation categories as a dot plot.
-sg.module_dot_plot(adata, ggm_key = 'ggm', groupby = 'cell_type', scale=True,
-                   dendrogram_height = 0, fig_height = 7, fig_width = 12, axis_fontsize = 10)
+# Display smoothed annotations for top 20 programs.
+# If smoothing is skipped, use 'M1_anno' … 'M20_anno' instead.
+program_list = ggm.modules_summary['module_id'] + '_anno_smooth'
+sc.pl.spatial(adata, spot_size = 30, color = program_list[:20], legend_loc = None, ncols = 5)
+# Where the blue nodes indicate the spots annotated by the program, and gray nodes are unassigned.
 
 # %%
 # Integrate multiple program-derived annotations into a single label set via sg.integrate_annotations.
@@ -140,9 +149,41 @@ sg.integrate_annotations(adata, ggm_key = 'ggm', use_smooth = False, neighbor_si
 
 # %%
 # Visualize the integrated annotation.
-plt.rcParams["figure.figsize"] = (4.5, 6)
-sc.pl.spatial(adata, spot_size = 30, color = ['ggm_annotation'], frameon = False, title = 'Integrated annotation')
+plt.rcParams["figure.figsize"] = (7, 7)
+sc.pl.spatial(adata, spot_size = 30, color = ['ggm_annotation'], palette = adata.uns['module_colors'], frameon = False, title = 'Integrated annotation')
+
+
+# %% [markdown]
+#### Part 3: Cluster spots based a dimensionality reduction of program expression ###
+
+
+# %%
+# Build a neighborhood graph based on program expression and perform clustering.
+sc.pp.neighbors(adata, 
+                use_rep='module_expression_scaled',
+                n_pcs=adata.obsm['module_expression_scaled'].shape[1])
+sc.tl.leiden(adata, resolution=3, key_added='leiden_ggm')
+sc.tl.louvain(adata, resolution=3, key_added='louvan_ggm')
+
+# %%
+# Visualize the clustering results.
+plt.rcParams["figure.figsize"] = (6, 6)
+sc.pl.spatial(adata, spot_size = 30, color = ['leiden_ggm'], frameon = False, title = 'Leiden clustering')
+plt.rcParams["figure.figsize"] = (6, 6)
+sc.pl.spatial(adata, spot_size = 30, color = ['louvan_ggm'], frameon = False, title = 'Louvain clustering')
+
+# %%
+# Summarize program-expression across the leiden clusters clusters as a dot plot.
+sg.module_dot_plot(adata, ggm_key = 'ggm', groupby = 'leiden_ggm', scale=True,
+                   dendrogram_height = 0.15, dendrogram_space = 0.05, fig_height=8, fig_width = 14, axis_fontsize = 10)
 
 # %%
 # Save the annotated AnnData object.
 adata.write("data/Mouse_Brain_5K_ggm_anno.h5ad")
+
+# %%
+adata = sc.read_h5ad("data/Mouse_Brain_5K_ggm_anno.h5ad")
+ggm = sg.load_ggm("data/Mouse_Brain_5K.ggm.h5")
+# %%
+
+# %%
