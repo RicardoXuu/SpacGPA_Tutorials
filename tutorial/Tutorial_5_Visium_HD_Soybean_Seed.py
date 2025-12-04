@@ -76,6 +76,9 @@ print(ggm)
 # Save the GGM object to HDF5 for later reuse.
 sg.save_ggm(ggm, "data/Soybean_Seed_HD.ggm.h5")
 
+# %%
+ggm = sg.load_ggm("data/Soybean_Seed_HD.ggm.h5")
+
 # %% [markdown]
 #### Part 2: Spot annotation based on program expression ###
 
@@ -89,6 +92,10 @@ sg.calculate_module_expression(adata, ggm)
 plt.rcParams["figure.figsize"] = (7, 7)
 program_list = ggm.modules_summary['module_id'] + '_exp'
 sc.pl.spatial(adata, size = 1.2, alpha_img = 0.5, bw = True, color = program_list[:20], cmap = 'Reds', ncols = 4)
+
+# %%
+sc.pl.spatial(adata, size = 1.2, alpha_img = 0.5, bw = True, color = program_list[:20], cmap = 'Reds', ncols = 5,show=False)
+plt.savefig("figures/Soybean_Seed_HD_program_expression.png", dpi=300)
 
 
 # %%
@@ -128,6 +135,10 @@ plt.rcParams["figure.figsize"] = (4, 6)
 sc.pl.spatial(adata, size = 1.2, alpha_img = 0.5, bw = True, color = ['ggm_annotation'], palette = adata.uns['module_colors'],
               frameon = False, title = 'Integrated annotation')
 
+# %%
+sc.pl.spatial(adata, size = 1.2, alpha_img = 0.5, bw = True, color = ['ggm_annotation'], palette = adata.uns['module_colors'],
+              frameon = False, title = 'Integrated annotation',show=False)
+plt.savefig("figures/Soybean_Seed_HD_integrated_annotation.pdf",bbox_inches='tight')
 
 # %%
 # Save the annotated AnnData object.
