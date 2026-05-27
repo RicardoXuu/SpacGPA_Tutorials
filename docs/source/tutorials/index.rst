@@ -9,3 +9,4 @@ Tutorials
    Tutorial 3: Xenium Prime 5K: Mouse Brain <Tutorial_3_Xenium_Prime_5K_Mouse_Brain>
    Tutorial 4: MERFISH: Mouse Brain <Tutorial_4_MERFISH_Mouse_Brain>
    Tutorial 5: Visium HD: Soybean Seed <Tutorial_5_Visium_HD_Soybean_Seed>
+   Tutorial 6: Atera: Breast Tumor <Tutorial_6_Atera_Breast_Tumor>
